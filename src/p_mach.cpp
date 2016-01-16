@@ -470,8 +470,8 @@ PackMachBase<T>::compare_segment_command(void const *const aa, void const *const
 
 #undef PAGE_MASK64
 #undef PAGE_SIZE64
-#define PAGE_MASK64 (~(acc_uint64l_t)0<<12)
-#define PAGE_SIZE64 ((acc_uint64l_t)0-PAGE_MASK64)
+#define PAGE_MASK64 (~(upx_uint64_t)0<<12)
+#define PAGE_SIZE64 ((upx_uint64_t)0-PAGE_MASK64)
 
 // At 2013-02-03 part of the source for codesign was
 //    http://opensource.apple.com/source/cctools/cctools-836/libstuff/ofile.c
@@ -1167,7 +1167,7 @@ void PackMachBase<T>::pack1(OutputFile *const fo, Filter &/*ft*/)  // generate e
             + sizeof(segXHDR) + sizeof(secXHDR)
             + sizeof(segTEXT) + sizeof(secTEXT) + sizeof(segLINK) +
             my_thread_command_size /* + sizeof(uuid_cmd) + sizeof(linkitem) */ ;
-        mhdro.flags = Mach_header::MH_NOUNDEFS;
+        mhdro.flags = Mach_header::MH_NOUNDEFS | Mach_header::MH_DYLDLINK;
     }
     fo->write(&mhdro, sizeof(mhdro));
 

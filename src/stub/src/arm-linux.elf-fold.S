@@ -40,6 +40,10 @@ sz_b_info = 12
   sz_cpr= 4
   b_method= 8
 
+#ifndef DEBUG  /*{*/
+#define DEBUG 0
+#endif  /*}*/
+
 @@ control just falls through, after this part and compiled C code
 @@ are uncompressed.
 
@@ -53,25 +57,52 @@ fold_begin:
     r5= f_decompress
     sp/ ADRU,LENU,sz_unc,crumb,MFLG,argc,argv...
 */
+        ldmia sp!,{r3,r4,r6,r7,r8,r11}  @ ADRU,LENU,sz_unc,crumb,MFLG,argc
+        mov r1,sp  @ old_argv
+        sub sp,sp,#4096  @ buffer for readlink
+        sub sp,sp,#2*4  @ room for added env ptr and text
+        mov r0,sp  @ new_argv
+        stmdb sp!,{r3,r4,r6,r7,r11}  @ ADRU,LENU,sz_unc,crumb,argc;  drop MFLG
 SP_sz_unc= 2*4
-SP_MFLG= 4*4
-SP_argc= 5*4
-        ldr r3,[sp,#SP_argc]
-        ldr lr,[sp,#SP_MFLG]
-        add r3,sp,r3,lsl #2  @ skip argv
-        add r3,r3,#SP_argc +4 +4  @ skip ADRU,LENU,sz_unc,crumb,MFLG, argc, env_end
-.Lenv:
-        ldr r0,[r3],#4  @ skip env
-        cmp r0,#0
-        bne .Lenv
-                /* r3= &Elf32_auxv_t */
-        mov r2,r3
-.Laux:
-        ldr r0,[r2],#2*4  @ .a_type
-        cmp r0,#0
-        bne .Laux
-        str r2,[sp,#SP_sz_unc]  @ clobber sz_unc with 1+ &Elf32_auxv_t[AT_NULL@.a_type]
+SP_argc= 4*4
 
+        add r11,r11,#1  @ (1+argc) for end of argv
+.Larg:  @ copy argv
+        ldr r2,[r1],#4; subs r11,r11,#1
+        str r2,[r0],#4; bne .Larg
+
+.Lenv:  @ copy env
+        ldr r2,[r1],#4
+        str r2,[r0],#4
+        cmp r2,#0; bne .Lenv
+
+        sub r4,r0,#4  @ added env ptr goes here
+        str r2,[r0],#4  @ terminator after added ptr
+        mov r3,r0  @ new &Elf32_auxv_t
+
+.Laux:  @ copy auxv
+        ldr r2,[r1,#4]  @ .a_val
+        str r2,[r0,#4]
+        ldr r2,[r1],#2*4  @ .a_type
+        str r2,[r0],#2*4
+        cmp r2,#0; bne .Laux
+
+        str r0,[sp,#SP_sz_unc]  @ clobber sz_unc with 1+ &Elf32_auxv_t[AT_NULL@.a_type]
+
+        str r0,[r4]  @ new env ptr
+        ldr r2,space3eq
+        str r2,[r0],#4  @ "   =" of new env var
+
+        mov r2,#4096  @ buffer length
+        mov r1,r0  @ buffer for readlink
+        adr r0,proc_self_exe
+        sub r2,r2,#1  @ room for null terminator
+        bl readlink; cmn r0,#4096; bcs 0f  @ error
+        mov r2,#0
+        strb r2,[r1,r0]  @ null terminate pathname
+0:
+
+/* Construct arglist for upx_main */
         sub sp,sp,#MAX_ELF_HDR + OVERHEAD  @ alloca
         mov r4,r9  @ total size of compressed data
         ldr r9,[r10,#sz_cpr]  @ xi.size  of ELF headers
@@ -89,16 +120,33 @@ SP_argc= 5*4
 #else  /*}{*/
         mov r12,#0
 #endif  /*}*/
-        stmdb sp!,{r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,lr}
+        stmdb sp!,{r3,r4,r5,r6,r7,r8,r9,r10,r11,r12}
         ldmia sp!,{r0,r1,r2,r3}
         bl upx_main
         mov lr,r0  @ entry address
-        add sp,sp,#(11-4)*4
+        add sp,sp,#(10-4)*4
         add sp,sp,#MAX_ELF_HDR + OVERHEAD  @ un-alloca
-        ldmia sp!,{r0,r1,r2,r3,r4}  @ ADRU,LENU,1+ &Elf32_auxv_t[AT_NULL@.a_type],crumb,MFLG
+
+#if 0  //{ make_hatch_arm() does it then
+  @ __clear_cache(hatch, &hatch[2]);
+        ldr r2,[sp,#2*4]  @ 1+ &Elf32_auxv_t[AT_NULL@.a_type]
+        ldr r0,[r2,#4 -2*4]   @ Elf32_auxv_t[AT_NULL@.a_type].a_val
+        add r1,r0,#2*4  @ len= 2 instructions  the "escape hatch"
+        mov r2,#0
+        do_sys7t2 __ARM_NR_cacheflush  @ scribble r7
+#endif  //}
+
+        ldmia sp!,{r0,r1,r2,r3}  @ ADRU,LENU,1+ &Elf32_auxv_t[AT_NULL@.a_type],crumb
         add r0,r0,r3  @ ADRU+=crumb
         sub r1,r1,r3  @ LENU-=crumb
 
+#if DEBUG  /*{*/
+        ldr r3,[r2,#4 -2*4]  @ Elf32_auxv_t[AT_NULL@.a_type].a_val
+        ldr r4,[r3,#0]  @ 1st instr
+        ldr r5,[r3,#4]  @ 2nd instr
+#define TRACE_REGS r0-r12,r14,r15
+        stmdb sp!,{TRACE_REGS}; mov r0,#4; bl trace
+#endif  /*}*/
         mov r3,#0  @ clear registers: paranoia
         mov r4,#0
         mov r5,#0
@@ -108,6 +156,17 @@ SP_argc= 5*4
         mov r9,#0
         mov r10,#0
         mov r11,#0
+
+/* Heuristic cache flush: sweep contiguous range to force collisions and evictions. */
+        sub r12,sp,#(1<<19)  @ limit: 1/2 MB more
+sweep:
+        ldr r7,[sp],#-(1<<5)  @ extend stack; read allocate 32 bytes
+        str r7,[sp]  @ make it dirty
+        ldr r7,[sp]  @ read alocate again in case dirtying caused COW split
+        cmp r12,sp; blo sweep
+
+        add sp,sp,#(1<<19)  @ pop stack
+
 #if defined(ARMEL_DARWIN)  /*{*/
         mov r7,#0
         mov r12,#0xff & __NR_munmap
@@ -119,6 +178,12 @@ SP_argc= 5*4
         mov r12,#0
 #endif  /*}*/
         ldr pc,[r2,#4 -2*4]  @ Elf32_auxv_t[AT_NULL@.a_type].a_val
+
+space3eq:
+        .ascii "   ="
+proc_self_exe:
+        .asciz "/proc/self/exe"
+        .balign 4
 
 f_unfilter:  @ (char *ptr, uint len, uint cto, uint fid)
         ptr  .req r0
@@ -155,6 +220,57 @@ tst_unf:
         bne top_unf
         ret
 
+#if DEBUG  /*{*/
+TRACE_BUFLEN=512
+trace:
+        str lr,[sp,#(-1+ 15)*4]  @ return pc; [remember: sp is not stored]
+        mov r4,sp  @ &saved_r0
+        sub sp,sp,#TRACE_BUFLEN
+        mov r2,sp  @ output string
+
+        mov r1,#'\n'; bl trace_hex  @ In: r0 as label
+        mov r1,#'>';  strb r1,[r2],#1
+
+        mov r5,#3  @ rows to print
+L600:  @ each row
+        sub r0,r4,#TRACE_BUFLEN
+        sub r0,r0,sp
+        mov r0,r0,lsr #2; mov r1,#'\n'; bl trace_hex  @ which block of 8
+
+        mov r6,#8  @ words per row
+L610:  @ each word
+        ldr r0,[r4],#4; mov r1,#' '; bl trace_hex  @ next word
+        subs r6,r6,#1; bgt L610
+
+        subs r5,r5,#1; bgt L600
+
+        mov r0,#'\n'; strb r0,[r2],#1
+        sub r2,r2,sp  @ count
+        mov r1,sp  @ buf
+        mov r0,#2  @ FD_STDERR
+#if defined(ARMEL_EABI4)  /*{*/
+        mov r7,#__NR_write
+        swi 0
+#else  /*}{*/
+        swi __NR_write
+#endif  /*}*/
+        add sp,sp,#TRACE_BUFLEN
+        ldmia sp!,{TRACE_REGS}
+
+trace_hex:  // In: r0=val, r1=punctuation before, r2=ptr; Uses: r3, ip
+        strb r1,[r2],#1  @ punctuation
+        mov r3,#4*(8 -1)  @ shift count
+        adr ip,hex
+L620:
+        mov r1,r0,lsr r3
+        and r1,r1,#0xf
+        ldrb r1,[ip, r1]
+        strb r1,[r2],#1
+        subs r3,r3,#4; bge L620
+        ret
+hex:
+        .ascii "0123456789abcdef"
+#endif  /*}*/
         .unreq ptr
         .unreq len
         .unreq cto
@@ -165,11 +281,23 @@ __NR_read  =  3 + __NR_SYSCALL_BASE
 __NR_write =  4 + __NR_SYSCALL_BASE
 __NR_open  =  5 + __NR_SYSCALL_BASE
 __NR_close =  6 + __NR_SYSCALL_BASE
+__NR_unlink= 10 + __NR_SYSCALL_BASE
+__NR_getpid= 20 + __NR_SYSCALL_BASE
 __NR_brk   = 45 + __NR_SYSCALL_BASE
+__NR_readlink=85+ __NR_SYSCALL_BASE
+
 
 __NR_mmap2    = 192 + __NR_SYSCALL_BASE
 __NR_mprotect = 125 + __NR_SYSCALL_BASE
 __NR_munmap   =  91 + __NR_SYSCALL_BASE
+
+__ARM_NR_BASE       = 0x0f0000 + __NR_SYSCALL_BASE
+__ARM_NR_cacheflush = 2 + __ARM_NR_BASE
+
+        .globl my_bkpt
+my_bkpt:
+        bkpt
+        ret
 
         .globl exit
 exit:
@@ -191,9 +319,21 @@ open:
 close:
         do_sys __NR_close; ret
 
+        .globl unlink
+unlink:
+        do_sys __NR_unlink; ret
+
+        .globl getpid
+getpid:
+        do_sys __NR_getpid; ret
+
         .globl brk
 brk:
         do_sys __NR_brk; ret
+
+        .globl readlink
+readlink:
+        do_sys __NR_readlink; ret
 
         .globl munmap
 munmap:
@@ -202,6 +342,11 @@ munmap:
         .globl mprotect
 mprotect:
         do_sys __NR_mprotect; ret
+
+        .globl __clear_cache
+__clear_cache:
+        mov r2,#0
+        do_sys2 __ARM_NR_cacheflush; ret
 
         .globl mmap
 mmap:
@@ -223,10 +368,6 @@ mmap_privanon: .globl mmap_privanon
         orr r3,r3,r12  @ flags |= MAP_{PRIVATE|ANON}  [QNX vs Linux]
         b mmap_do
 
-
-#ifndef DEBUG  /*{*/
-#define DEBUG 0
-#endif  /*}*/
 
 #if DEBUG  /*{*/
 

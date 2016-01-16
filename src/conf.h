@@ -149,6 +149,23 @@
 #  endif
 #endif
 
+/* intergral types */
+typedef acc_int8_t      upx_int8_t;
+typedef acc_uint8_t     upx_uint8_t;
+typedef acc_int16_t     upx_int16_t;
+typedef acc_uint16_t    upx_uint16_t;
+typedef acc_int32_t     upx_int32_t;
+typedef acc_uint32_t    upx_uint32_t;
+typedef acc_int64_t     upx_int64_t;
+typedef acc_uint64_t    upx_uint64_t;
+typedef acc_uintptr_t   upx_uintptr_t;
+#define UPX_INT16_C     ACC_INT16_C
+#define UPX_UINT16_C    ACC_UINT16_C
+#define UPX_INT32_C     ACC_INT32_C
+#define UPX_UINT32_C    ACC_UINT32_C
+#define UPX_INT64_C     ACC_INT64_C
+#define UPX_UINT64_C    ACC_UINT64_C
+
 
 /*************************************************************************
 //
@@ -321,7 +338,7 @@
 
 #if (ACC_CC_INTELC && (__INTEL_COMPILER < 800))
 #elif (0 && (ACC_ARCH_AMD64 || ACC_ARCH_I386))
-#elif (ACC_CC_CLANG || ACC_CC_GNUC || ACC_CC_INTELC || ACC_CC_PATHSCALE)
+#elif (ACC_CC_CLANG || ACC_CC_GNUC || ACC_CC_INTELC_GNUC || ACC_CC_PATHSCALE)
 #  define __packed_struct(s)        struct s {
 #  define __packed_struct_end()     } __attribute__((__packed__,__aligned__(1)));
 #elif (ACC_CC_WATCOMC)
@@ -486,6 +503,8 @@ private:
 #define UPX_F_DYLIB_i386        33
 #define UPX_F_MACH_AMD64        34
 #define UPX_F_DYLIB_AMD64       35
+
+#define UPX_F_WIN64_PEP         36
 
 #define UPX_F_PLAIN_TEXT        127
 

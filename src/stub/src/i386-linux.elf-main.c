@@ -321,7 +321,7 @@ ERR_LAB
     }
 }
 
-DEBUG_STRCON(STR_make_hatch, "make_hatch %%p %%x\\n");
+DEBUG_STRCON(STR_make_hatch, "make_hatch %%p %%x %%x\\n");
 
 #if defined(__i386__)  /*{*/
 // Create (or find) an escape hatch to use when munmapping ourselves the stub.
@@ -330,7 +330,7 @@ static void *
 make_hatch_x86(Elf32_Phdr const *const phdr, unsigned const reloc)
 {
     unsigned *hatch = 0;
-    DPRINTF((STR_make_hatch(),phdr,reloc));
+    DPRINTF((STR_make_hatch(),phdr,reloc,0));
     if (phdr->p_type==PT_LOAD && phdr->p_flags & PF_X) {
         // The format of the 'if' is
         //  if ( ( (hatch = loc1), test_loc1 )
@@ -369,7 +369,7 @@ make_hatch_arm(
 )
 {
     unsigned *hatch = 0;
-    DPRINTF((STR_make_hatch(),phdr,reloc));
+    DPRINTF((STR_make_hatch(),phdr,reloc,sys_munmap));
     if (phdr->p_type==PT_LOAD && phdr->p_flags & PF_X) {
         // The format of the 'if' is
         //  if ( ( (hatch = loc1), test_loc1 )
@@ -389,6 +389,7 @@ make_hatch_arm(
         {
             hatch[0]= sys_munmap;  // syscall __NR_unmap
             hatch[1]= 0xe1a0f00e;  // mov pc,lr
+            __clear_cache(&hatch[0], &hatch[2]);  // ? needed before mprotect()
         }
         else {
             hatch = 0;
@@ -404,7 +405,7 @@ make_hatch_mips(
     unsigned const frag_mask)
 {
     unsigned *hatch = 0;
-    DPRINTF((STR_make_hatch(),phdr,reloc));
+    DPRINTF((STR_make_hatch(),phdr,reloc,frag_mask));
     if (phdr->p_type==PT_LOAD && phdr->p_flags & PF_X) {
         // Try page fragmentation just beyond .text .
         if ( ( (hatch = (void *)(phdr->p_memsz + phdr->p_vaddr + reloc)),
@@ -660,6 +661,18 @@ ERR_LAB
     return ehdr->e_entry + reloc;
 }
 
+#if 0 && defined(__arm__)  //{
+static uint32_t ascii5(char *p, uint32_t v, unsigned n)
+{
+    do {
+        unsigned char d = (0x1f & v) + 'A';
+        if ('Z' < d) d += '0' - (1+ 'Z');
+        *--p = d;
+        v >>= 5;
+    } while (--n > 0);
+    return v;
+}
+#endif  //}
 
 DEBUG_STRCON(STR_upx_main,
     "upx_main av=%%p  szc=%%x  f_dec=%%p  f_unf=%%p  "
@@ -714,7 +727,7 @@ void *upx_main(
 #if !defined(__mips__)  /*{*/
     Elf32_Ehdr *const ehdr = (Elf32_Ehdr *)(void *)xo.buf;  // temp char[MAX_ELF_HDR+OVERHEAD]
 #endif  /*}*/
-    Elf32_Phdr const *phdr = (Elf32_Phdr const *)(1+ ehdr);
+    Elf32_Phdr const *phdr = (Elf32_Phdr const *)(1+ ehdr), *zhdr = phdr;
     Elf32_Addr reloc;
     Elf32_Addr entry;
 
@@ -757,7 +770,6 @@ void *upx_main(
     auxv_up(av, AT_PHNUM , ehdr->e_phnum);
     auxv_up(av, AT_PHENT , ehdr->e_phentsize);
     {
-        Elf32_Phdr const *zhdr = phdr;
         while (PT_LOAD!=zhdr->p_type) ++zhdr;  // skip ARM PT_EXIDX and others
         auxv_up(av, AT_PHDR  , dynbase + (unsigned)(1+(Elf32_Ehdr *)zhdr->p_vaddr));
     }
@@ -788,6 +800,26 @@ ERR_LAB
         close(fdi);
         break;
     }
+#if 0 && defined(__arm__)  //{ Hack for__clear_cache() not working.
+#  define SET4(p, c0, c1, c2, c3) \
+        (p)[0] = c0, (p)[1] = c1, (p)[2] = c2, (p)[3] = c3
+    if (ehdr->e_phnum <= j) { // no PT_INTERP
+        extern unsigned getpid(void);
+        extern unsigned unlink(char const *);
+        char tmpname_buf[20], *p = tmpname_buf;
+        SET4(&p[0], '/', 't', 'm', 'p');
+        SET4(&p[4], '/', 'u', 'p', 'x');
+        p = &tmpname_buf[sizeof(tmpname_buf)];       *--p = '\0';
+        unsigned r = ascii5(p, (uint32_t)getpid(), 4); p -= 4;
+        Elf32_auxv_t *const avr = auxv_find(av, AT_RANDOM);
+        if (avr) r ^= *(unsigned const *)(~3&(3+avr->a_un.a_val));
+        ascii5(p, r, 7); p = &tmpname_buf[0];
+        int const fdo = open(p, O_WRONLY | O_CREAT | O_EXCL, 0700);
+        unlink(p);
+        write(fdo, dynbase + (void const *)zhdr->p_vaddr, zhdr->p_memsz);
+        close(fdo);
+    }
+#endif  //}
   }
 
     return (void *)entry;

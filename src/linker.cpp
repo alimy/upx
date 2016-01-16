@@ -84,7 +84,7 @@ ElfLinker::Section::~Section()
 // Symbol
 **************************************************************************/
 
-ElfLinker::Symbol::Symbol(const char *n, Section *s, unsigned o) :
+ElfLinker::Symbol::Symbol(const char *n, Section *s, upx_uint64_t o) :
     name(NULL), section(s), offset(o)
 {
     name = strdup(n);
@@ -103,7 +103,7 @@ ElfLinker::Symbol::~Symbol()
 **************************************************************************/
 
 ElfLinker::Relocation::Relocation(const Section *s, unsigned o, const char *t,
-                                  const Symbol *v, unsigned a) :
+                                  const Symbol *v, upx_uint64_t a) :
     section(s), offset(o), type(t), value(v), add(a)
 {
     assert(section != NULL);
@@ -294,29 +294,28 @@ void ElfLinker::preprocessRelocations(char *start, char *end)
             char *t = strstr(start, type);
             t[strlen(type)] = 0;
 
-            unsigned add = 0;
-            if (char *p = strstr(symbol, "+0x"))
+            upx_uint64_t add = 0;
+            char *p = strstr(symbol, "+0x");
+            if (p == NULL)
+                p = strstr(symbol, "-0x");
+            if (p)
             {
+                char sign = *p;
                 *p = 0;  // terminate the symbol name
                 p += 3;
 
-                if (strlen(p) == 16) {
-                    // skip 8 leading chars if sign of char 9 matches
-                    if (memcmp(p, "000000000", 9))
-                        p += 8;
-                    else if (memcmp(p, "fffffffff", 9))
-                        p += 8;
-                }
-                assert(strlen(p) == 8);
+                assert(strlen(p) == 8 || strlen(p) == 16);
                 char *endptr = NULL;
-                unsigned long ul = strtoul(p, &endptr, 16);
-                add = (unsigned) ul;
-                assert(add == ul);
+                upx_uint64_t ull = strtoull(p, &endptr, 16);
+                add = (upx_uint64_t) ull;
+                assert(add == ull);
                 assert(endptr && *endptr == '\0');
+                if (sign == '-')
+                    add = -add;
             }
 
             addRelocation(section->name, offset, t, symbol, add);
-            //printf("relocation %s %s %x %d preprocessed\n", section->name, symbol, offset, add);
+            //printf("relocation %s %s %x %llu preprocessed\n", section->name, symbol, offset, (unsigned long long) add);
         }
 
         start = nextl + 1;
@@ -357,7 +356,7 @@ ElfLinker::Section *ElfLinker::addSection(const char *sname, const void *sdata, 
 }
 
 ElfLinker::Symbol *ElfLinker::addSymbol(const char *name, const char *section,
-                                        unsigned offset)
+                                        upx_uint64_t offset)
 {
     //printf("addSymbol: %s %s 0x%x\n", name, section, offset);
     if (update_capacity(nsymbols, &nsymbols_capacity))
@@ -372,7 +371,7 @@ ElfLinker::Symbol *ElfLinker::addSymbol(const char *name, const char *section,
 
 ElfLinker::Relocation *ElfLinker::addRelocation(const char *section, unsigned off,
                                                 const char *type, const char *symbol,
-                                                unsigned add)
+                                                upx_uint64_t add)
 {
     if (update_capacity(nrelocations, &nrelocations_capacity))
         relocations = static_cast<Relocation **>(realloc(relocations, (nrelocations_capacity) * sizeof(Relocation *)));
@@ -498,7 +497,7 @@ void ElfLinker::relocate()
     for (unsigned ic = 0; ic < nrelocations; ic++)
     {
         const Relocation *rel = relocations[ic];
-        unsigned value = 0;
+        upx_uint64_t value = 0;
 
         if (rel->section->output == NULL)
             continue;
@@ -519,13 +518,13 @@ void ElfLinker::relocate()
                     rel->value->offset + rel->add;
         }
         upx_byte *location = rel->section->output + rel->offset;
-        //printf("%-28s %-28s %-10s 0x%08x 0x%08x\n", rel->section->name, rel->value->name, rel->type, value, value - rel->section->offset - rel->offset);
-        //printf("  %d %d %d %d %d : %d\n", value, rel->value->section->offset, rel->value->offset, rel->offset, rel->add, *location);
+        //printf("%-28s %-28s %-10s 0x%16llx 0x%16llx\n", rel->section->name, rel->value->name, rel->type, (long long) value, (long long) value - rel->section->offset - rel->offset);
+        //printf("  %llx %d %llx %d %llx : %d\n", (long long) value, rel->value->section->offset, rel->value->offset, rel->offset, (long long) rel->add, *location);
         relocate1(rel, location, value, rel->type);
     }
 }
 
-void ElfLinker::defineSymbol(const char *name, unsigned value)
+void ElfLinker::defineSymbol(const char *name, upx_uint64_t value)
 {
     Symbol *symbol = findSymbol(name);
     if (strcmp(symbol->section->name, "*ABS*") == 0)
@@ -550,8 +549,11 @@ void ElfLinker::dumpSymbol(const Symbol *symbol, unsigned flags, FILE *fp) const
 {
     if ((flags & 1) && symbol->section->output == NULL)
         return;
-    fprintf(fp, "%-28s 0x%08x | %-28s 0x%08x\n",
-            symbol->name, symbol->offset, symbol->section->name, symbol->section->offset);
+    char d0[16+1], d1[16+1];
+    upx_snprintf(d0, sizeof(d0), "%016llx", (upx_uint64_t) symbol->offset);
+    upx_snprintf(d1, sizeof(d1), "%016llx", (upx_uint64_t) symbol->section->offset);
+    fprintf(fp, "%-28s 0x%-16s | %-28s 0x%-16s\n",
+            symbol->name, d0, symbol->section->name, d1);
 }
 void ElfLinker::dumpSymbols(unsigned flags, FILE *fp) const
 {
@@ -562,7 +564,9 @@ void ElfLinker::dumpSymbols(unsigned flags, FILE *fp) const
         // default: dump symbols in used section order
         for (const Section *section = head; section; section = section->next)
         {
-            fprintf(fp, "%-42s%-28s 0x%08x\n", "", section->name, section->offset);
+            char d1[16+1];
+            upx_snprintf(d1, sizeof(d1), "%016llx", (upx_uint64_t) section->offset);
+            fprintf(fp, "%-42s%-28s 0x%-16s\n", "", section->name, d1);
             for (unsigned ic = 0; ic < nsymbols; ic++)
             {
                 const Symbol *symbol = symbols[ic];
@@ -579,7 +583,7 @@ void ElfLinker::dumpSymbols(unsigned flags, FILE *fp) const
     }
 }
 
-unsigned ElfLinker::getSymbolOffset(const char *name) const
+upx_uint64_t ElfLinker::getSymbolOffset(const char *name) const
 {
     const Symbol *symbol = findSymbol(name);
     if (symbol->section->output == NULL)
@@ -594,7 +598,7 @@ void ElfLinker::alignWithByte(unsigned len, unsigned char b)
 }
 
 void ElfLinker::relocate1(const Relocation *rel, upx_byte *,
-                          unsigned, const char *)
+                          upx_uint64_t, const char *)
 {
     internal_error("unknown relocation type '%s\n", rel->type);
 }
@@ -620,16 +624,18 @@ static void check8(const Relocation *rel, const upx_byte *location, int v, int d
 
 
 void ElfLinkerAMD64::relocate1(const Relocation *rel, upx_byte *location,
-                               unsigned value, const char *type)
+                               upx_uint64_t value, const char *type)
 {
     if (strncmp(type, "R_X86_64_", 9))
         return super::relocate1(rel, location, value, type);
     type += 9;
 
+    bool range_check = false;
     if (strncmp(type, "PC", 2) == 0)
     {
         value -= rel->section->offset + rel->offset;
         type += 2;
+        range_check = true;
     }
 
     if (strcmp(type, "8") == 0)
@@ -639,22 +645,24 @@ void ElfLinkerAMD64::relocate1(const Relocation *rel, upx_byte *location,
 #else
         int displ = (signed char) *location + (int) value;
 #endif
-        if (displ < -128 || displ > 127)
+        if (range_check && (displ < -128 || displ > 127))
             internal_error("target out of range (%d) in reloc %s:%x\n",
                            displ, rel->section->name, rel->offset);
         *location += value;
     }
     else if (strcmp(type, "16") == 0)
         set_le16(location, get_le16(location) + value);
-    else if (strcmp(type, "32") == 0)
+    else if (strncmp(type, "32", 2) == 0)  // for "32" and "32S"
         set_le32(location, get_le32(location) + value);
+    else if (strcmp(type, "64") == 0)
+        set_le64(location, get_le64(location) + value);
     else
         super::relocate1(rel, location, value, type);
 }
 
 
 void ElfLinkerArmBE::relocate1(const Relocation *rel, upx_byte *location,
-                               unsigned value, const char *type)
+                               upx_uint64_t value, const char *type)
 {
     if (strcmp(type, "R_ARM_PC24") == 0)
     {
@@ -689,7 +697,7 @@ void ElfLinkerArmBE::relocate1(const Relocation *rel, upx_byte *location,
 
 
 void ElfLinkerArmLE::relocate1(const Relocation *rel, upx_byte *location,
-                               unsigned value, const char *type)
+                               upx_uint64_t value, const char *type)
 {
     if (strcmp(type, "R_ARM_PC24") == 0)
     {
@@ -733,7 +741,7 @@ void ElfLinkerM68k::alignCode(unsigned len)
 }
 
 void ElfLinkerM68k::relocate1(const Relocation *rel, upx_byte *location,
-                              unsigned value, const char *type)
+                              upx_uint64_t value, const char *type)
 {
     if (strncmp(type, "R_68K_", 6))
         return super::relocate1(rel, location, value, type);
@@ -759,7 +767,7 @@ void ElfLinkerM68k::relocate1(const Relocation *rel, upx_byte *location,
 
 
 void ElfLinkerMipsBE::relocate1(const Relocation *rel, upx_byte *location,
-                                unsigned value, const char *type)
+                                upx_uint64_t value, const char *type)
 {
 #define MIPS_HI(a)      (((a) >> 16) + (((a) & 0x8000) >> 15))
 #define MIPS_LO(a)      ((a) & 0xffff)
@@ -790,7 +798,7 @@ void ElfLinkerMipsBE::relocate1(const Relocation *rel, upx_byte *location,
 
 
 void ElfLinkerMipsLE::relocate1(const Relocation *rel, upx_byte *location,
-                                unsigned value, const char *type)
+                                upx_uint64_t value, const char *type)
 {
 #define MIPS_HI(a)      (((a) >> 16) + (((a) & 0x8000) >> 15))
 #define MIPS_LO(a)      ((a) & 0xffff)
@@ -821,7 +829,7 @@ void ElfLinkerMipsLE::relocate1(const Relocation *rel, upx_byte *location,
 
 
 void ElfLinkerPpc32::relocate1(const Relocation *rel, upx_byte *location,
-                               unsigned value, const char *type)
+                               upx_uint64_t value, const char *type)
 {
     if (strncmp(type, "R_PPC_", 6))
         return super::relocate1(rel, location, value, type);
@@ -862,7 +870,7 @@ void ElfLinkerPpc32::relocate1(const Relocation *rel, upx_byte *location,
 
 
 void ElfLinkerX86::relocate1(const Relocation *rel, upx_byte *location,
-                             unsigned value, const char *type)
+                             upx_uint64_t value, const char *type)
 {
     if (strncmp(type, "R_386_", 6))
         return super::relocate1(rel, location, value, type);

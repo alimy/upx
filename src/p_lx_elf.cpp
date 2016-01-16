@@ -63,8 +63,8 @@ umin(unsigned a, unsigned b)
     return (a < b) ? a : b;
 }
 
-static acc_uint64l_t
-umin64(acc_uint64l_t a, acc_uint64l_t b)
+static upx_uint64_t
+umin64(upx_uint64_t a, upx_uint64_t b)
 {
     return (a < b) ? a : b;
 }
@@ -83,6 +83,15 @@ fpad4(OutputFile *fo)
     unsigned zero = 0;
     fo->write(&zero, d);
     return d + len;
+}
+
+static unsigned
+funpad4(InputFile *fi)
+{
+    unsigned d = 3u & (0 - fi->tell());
+    if (d)
+        fi->seek(d, SEEK_CUR);
+    return d;
 }
 
 int
@@ -164,7 +173,7 @@ PackLinuxElf64::checkEhdr(Elf64_Ehdr const *ehdr) const
 
     if (type == Elf64_Ehdr::ET_EXEC) {
         // check for Linux kernels
-        acc_uint64l_t const entry = get_te64(&ehdr->e_entry);
+        upx_uint64_t const entry = get_te64(&ehdr->e_entry);
         if (entry == 0xC0100000)    // uncompressed vmlinux
             return 1000;
         if (entry == 0x00001000)    // compressed vmlinux
@@ -184,7 +193,7 @@ PackLinuxElf64::checkEhdr(Elf64_Ehdr const *ehdr) const
 
 PackLinuxElf::PackLinuxElf(InputFile *f)
     : super(f), e_phnum(0), file_image(NULL), dynstr(NULL),
-    sz_phdrs(0), sz_elf_hdrs(0), sz_pack2(0), sz_pack2a(0), sz_pack2b(0),
+    sz_phdrs(0), sz_elf_hdrs(0), sz_pack2(0), sz_pack2a(0),
     lg2_page(12), page_size(1u<<lg2_page), xct_off(0), xct_va(0),
     e_machine(0), ei_class(0), ei_data(0), ei_osabi(0), osabi_note(NULL),
     o_elf_shnum(0)
@@ -198,7 +207,6 @@ PackLinuxElf::~PackLinuxElf()
 
 void PackLinuxElf::pack3(OutputFile *fo, Filter &ft)
 {
-    sz_pack2b = fpad4(fo);  // after headers, all PT_LOAD, gaps
     unsigned disp;
     unsigned const zero = 0;
     unsigned len = sz_pack2a;  // after headers and all PT_LOAD
@@ -230,10 +238,10 @@ void PackLinuxElf::pack3(OutputFile *fo, Filter &ft)
     sz_pack2 = len;  // 0 mod 8
 
     super::pack3(fo, ft);  // append the decompressor
-    set_te16(&linfo.l_lsize, up4(
+    set_te16(&linfo.l_lsize, up4(  // MATCH03: up4
     get_te16(&linfo.l_lsize) + len - sz_pack2a));
 
-    len = fpad4(fo);
+    len = fpad4(fo);  // MATCH03
 }
 
 void PackLinuxElf32::pack3(OutputFile *fo, Filter &ft)
@@ -356,13 +364,13 @@ void PackLinuxElf64::pack3(OutputFile *fo, Filter &ft)
         Elf64_Phdr *phdr = phdri;
         unsigned off = fo->st_size();
         unsigned off_init = 0;  // where in file
-        acc_uint64l_t va_init = sz_pack2;   // virtual address
-        acc_uint64l_t rel = 0;
-        acc_uint64l_t old_dtinit = 0;
+        upx_uint64_t va_init = sz_pack2;   // virtual address
+        upx_uint64_t rel = 0;
+        upx_uint64_t old_dtinit = 0;
         for (int j = e_phnum; --j>=0; ++phdr) {
-            acc_uint64l_t const len  = get_te64(&phdr->p_filesz);
-            acc_uint64l_t const ioff = get_te64(&phdr->p_offset);
-            acc_uint64l_t       align= get_te64(&phdr->p_align);
+            upx_uint64_t const len  = get_te64(&phdr->p_filesz);
+            upx_uint64_t const ioff = get_te64(&phdr->p_offset);
+            upx_uint64_t       align= get_te64(&phdr->p_align);
             unsigned const type = get_te32(&phdr->p_type);
             if (phdr->PT_INTERP==type) {
                 // Rotate to highest position, so it can be lopped
@@ -420,7 +428,7 @@ void PackLinuxElf64::pack3(OutputFile *fo, Filter &ft)
         }
         if (off_init) {  // change DT_INIT.d_val
             fo->seek(off_init, SEEK_SET);
-            acc_uint64l_t word; set_te64(&word, va_init);
+            upx_uint64_t word; set_te64(&word, va_init);
             fo->rewrite(&word, sizeof(word));
             fo->seek(0, SEEK_END);
         }
@@ -852,22 +860,22 @@ PackLinuxElf64amd::defineSymbols(Filter const *)
     // know the final total compressed size yet, so use the uncompressed
     // size (total over all PT_LOAD64) as an upper bound.
     unsigned len = 0;
-    acc_uint64l_t lo_va_user = ~0ull;  // infinity
+    upx_uint64_t lo_va_user = ~0ull;  // infinity
     for (int j= e_phnum; --j>=0; ) {
         if (PT_LOAD64 == get_te32(&phdri[j].p_type)) {
             len += (unsigned)get_te64(&phdri[j].p_filesz);
-            acc_uint64l_t const va = get_te64(&phdri[j].p_vaddr);
+            upx_uint64_t const va = get_te64(&phdri[j].p_vaddr);
             if (va < lo_va_user) {
                 lo_va_user = va;
             }
         }
     }
     lsize = /*getLoaderSize()*/  64 * 1024;  // XXX: upper bound; avoid circularity
-    acc_uint64l_t       lo_va_stub = get_te64(&elfout.phdr[0].p_vaddr);
-    acc_uint64l_t adrc;
-    acc_uint64l_t adrm;
-    acc_uint64l_t adru;
-    acc_uint64l_t adrx;
+    upx_uint64_t       lo_va_stub = get_te64(&elfout.phdr[0].p_vaddr);
+    upx_uint64_t adrc;
+    upx_uint64_t adrm;
+    upx_uint64_t adru;
+    upx_uint64_t adrx;
     unsigned cntc;
     unsigned lenm;
     unsigned lenu;
@@ -1471,8 +1479,8 @@ PackLinuxElf64amd::canPack()
         throwCantPack("invalid Ehdr e_ehsize; try '--force-execve'");
         return false;
     }
-    acc_uint64l_t const e_shoff = get_te64(&ehdr->e_shoff);
-    acc_uint64l_t const e_phoff = get_te64(&ehdr->e_phoff);
+    upx_uint64_t const e_shoff = get_te64(&ehdr->e_shoff);
+    upx_uint64_t const e_phoff = get_te64(&ehdr->e_phoff);
     if (e_phoff != sizeof(*ehdr)) {// Phdrs not contiguous with Ehdr
         throwCantPack("non-contiguous Ehdr/Phdr; try '--force-execve'");
         return false;
@@ -1580,8 +1588,8 @@ PackLinuxElf64amd::canPack()
                 }
             }
             // Rely on 0==elf_unsigned_dynamic(tag) if no such tag.
-            acc_uint64l_t const va_gash = elf_unsigned_dynamic(Elf64_Dyn::DT_GNU_HASH);
-            acc_uint64l_t const va_hash = elf_unsigned_dynamic(Elf64_Dyn::DT_HASH);
+            upx_uint64_t const va_gash = elf_unsigned_dynamic(Elf64_Dyn::DT_GNU_HASH);
+            upx_uint64_t const va_hash = elf_unsigned_dynamic(Elf64_Dyn::DT_HASH);
             if (xct_va < va_gash  ||  (0==va_gash && xct_va < va_hash)
             ||  xct_va < elf_unsigned_dynamic(Elf64_Dyn::DT_STRTAB)
             ||  xct_va < elf_unsigned_dynamic(Elf64_Dyn::DT_SYMTAB)
@@ -1597,7 +1605,7 @@ PackLinuxElf64amd::canPack()
                 goto abandon;
             }
             for ((shdr= shdri), (j= n_elf_shnum); --j>=0; ++shdr) {
-                acc_uint64l_t const sh_addr = get_te64(&shdr->sh_addr);
+                upx_uint64_t const sh_addr = get_te64(&shdr->sh_addr);
                 if ( sh_addr==va_gash
                 ||  (sh_addr==va_hash && 0==va_gash) ) {
                     shdr= &shdri[get_te32(&shdr->sh_link)];  // the associated SHT_SYMTAB
@@ -2378,7 +2386,7 @@ int PackLinuxElf32::pack2(OutputFile *fo, Filter &ft)
         hdr_u_len = 0;
         ++nx;
     }
-    sz_pack2a = fpad4(fo);
+    sz_pack2a = fpad4(fo);  // MATCH01
 
     // Accounting only; ::pack3 will do the compression and output
     for (k = 0; k < e_phnum; ++k) {
@@ -2487,7 +2495,7 @@ int PackLinuxElf64::pack2(OutputFile *fo, Filter &ft)
         hdr_u_len = 0;
         ++nx;
     }
-    sz_pack2a = fpad4(fo);
+    sz_pack2a = fpad4(fo);  // MATCH01
 
     // Accounting only; ::pack3 will do the compression and output
     for (k = 0; k < e_phnum; ++k) { //
@@ -2567,8 +2575,6 @@ int PackLinuxElf32::ARM_is_QNX(void)
 
 void PackLinuxElf32::ARM_defineSymbols(Filter const * /*ft*/)
 {
-    unsigned const hlen = sz_elf_hdrs + sizeof(l_info) + sizeof(p_info);
-
     lsize = /*getLoaderSize()*/  4 * 1024;  // upper bound; avoid circularity
     unsigned lo_va_user = ~0u;  // infinity
     for (int j= e_phnum; --j>=0; ) {
@@ -2582,9 +2588,8 @@ void PackLinuxElf32::ARM_defineSymbols(Filter const * /*ft*/)
     unsigned lo_va_stub = get_te32(&elfout.phdr[0].p_vaddr);
     unsigned adrc;
     unsigned adrm;
-    unsigned adrx;
 
-    bool const is_big = true;
+    bool const is_big = true;  // kernel disallows mapping below 0x8000.
     if (is_big) {
         set_te32(    &elfout.ehdr.e_entry, linker->getSymbolOffset("_start") +
             get_te32(&elfout.ehdr.e_entry) + lo_va_user - lo_va_stub);
@@ -2593,15 +2598,14 @@ void PackLinuxElf32::ARM_defineSymbols(Filter const * /*ft*/)
                               lo_va_stub    = lo_va_user;
         adrc = lo_va_stub;
         adrm = getbrk(phdri, e_phnum);
-        adrx = hlen + (page_mask & (~page_mask + adrm));  // round up to page boundary
     }
-    adrm = page_mask & (~page_mask + adrm);  // round up to page boundary
     adrc = page_mask & (~page_mask + adrc);  // round up to page boundary
+    adrm = page_mask & (~page_mask + adrm);  // round up to page boundary
+    adrm += page_size;  // Try: hole so that kernel does not extend the brk(0)
+    linker->defineSymbol("ADRM", adrm);  // addr for map
 
     linker->defineSymbol("CPR0", 4+ linker->getSymbolOffset("cpr0"));
     linker->defineSymbol("LENF", 4+ linker->getSymbolOffset("end_decompress"));
-
-    linker->defineSymbol("ADRM", adrm);  // addr for map
 
 #define MAP_PRIVATE      2     /* UNIX standard */
 #define MAP_FIXED     0x10     /* UNIX standard */
@@ -2611,8 +2615,6 @@ void PackLinuxElf32::ARM_defineSymbols(Filter const * /*ft*/)
     if (ARM_is_QNX())
         mflg = MAP_PRIVANON;
     linker->defineSymbol("MFLG", mflg);
-
-    ACC_UNUSED(adrx);
 }
 
 void PackLinuxElf32armLe::defineSymbols(Filter const *ft)
@@ -2869,7 +2871,7 @@ void PackLinuxElf64::pack4(OutputFile *fo, Filter &ft)
 
     // rewrite Elf header
     if (Elf64_Ehdr::ET_DYN==get_te16(&ehdri.e_type)) {
-        acc_uint64l_t const base= get_te64(&elfout.phdr[0].p_vaddr);
+        upx_uint64_t const base= get_te64(&elfout.phdr[0].p_vaddr);
         set_te16(&elfout.ehdr.e_type, Elf64_Ehdr::ET_DYN);
         set_te16(&elfout.ehdr.e_phnum, 1);
         set_te64(    &elfout.ehdr.e_entry,
@@ -2887,7 +2889,7 @@ void PackLinuxElf64::pack4(OutputFile *fo, Filter &ft)
     }
     else {
         if (Elf64_Phdr::PT_NOTE==get_te64(&elfout.phdr[2].p_type)) {
-            acc_uint64l_t const reloc = get_te64(&elfout.phdr[0].p_vaddr);
+            upx_uint64_t const reloc = get_te64(&elfout.phdr[0].p_vaddr);
             set_te64(            &elfout.phdr[2].p_vaddr,
                 reloc + get_te64(&elfout.phdr[2].p_vaddr));
             set_te64(            &elfout.phdr[2].p_paddr,
@@ -2916,7 +2918,7 @@ void PackLinuxElf64::unpack(OutputFile *fo)
     {
         fi->seek(0, SEEK_SET);
         fi->readx(u.buf, MAX_ELF_HDR);
-        acc_uint64l_t const e_entry = get_te64(&ehdr->e_entry);
+        upx_uint64_t const e_entry = get_te64(&ehdr->e_entry);
         if (e_entry < 0x401180
         &&  ehdr->e_machine==Elf64_Ehdr::EM_386) { /* old style, 8-byte b_info */
             szb_info = 2*sizeof(unsigned);
@@ -2959,8 +2961,8 @@ void PackLinuxElf64::unpack(OutputFile *fo)
     fi->seek(- (off_t) (szb_info + ph.c_len), SEEK_CUR);
     for (unsigned j=0; j < u_phnum; ++phdr, ++j) {
         if (PT_LOAD64==get_te32(&phdr->p_type)) {
-            acc_uint64l_t const filesz = get_te64(&phdr->p_filesz);
-            acc_uint64l_t const offset = get_te64(&phdr->p_offset);
+            upx_uint64_t const filesz = get_te64(&phdr->p_filesz);
+            upx_uint64_t const offset = get_te64(&phdr->p_offset);
             if (fo)
                 fo->seek(offset, SEEK_SET);
             if (Elf64_Phdr::PF_X & get_te32(&phdr->p_flags)) {
@@ -2974,11 +2976,14 @@ void PackLinuxElf64::unpack(OutputFile *fo)
             }
         }
     }
-    if (( (unsigned)(get_te64(&ehdri.e_entry) - load_va) + up4(lsize) +
-            ph.getPackHeaderSize() + sizeof(overlay_offset)) < up4(fi->st_size())) {
+    bool const is_shlib = 0;  // XXX ??
+    if (is_shlib
+    ||  ((unsigned)(get_te64(&ehdri.e_entry) - load_va) + up4(lsize) +
+                ph.getPackHeaderSize() + sizeof(overlay_offset))
+            < up4(fi->st_size())) {
         // Loader is not at end; skip past it.
-        // total_in does not include n*szb_info, so we use SEEK_CUR.
-        fi->seek(up4(total_in) - total_in + lsize, SEEK_CUR);
+        funpad4(fi);  // MATCH01
+        fi->seek(lsize, SEEK_CUR);
     }
 
     // The gaps between PT_LOAD and after last PT_LOAD
@@ -3216,7 +3221,7 @@ PackLinuxElf32::elf_find_dynamic(unsigned int const key) const
     return 0;
 }
 
-acc_uint64l_t
+upx_uint64_t
 PackLinuxElf32::elf_unsigned_dynamic(unsigned int const key) const
 {
     Elf32_Dyn const *dynp= dynseg;
@@ -3227,13 +3232,13 @@ PackLinuxElf32::elf_unsigned_dynamic(unsigned int const key) const
     return 0;
 }
 
-acc_uint64l_t
-PackLinuxElf64::elf_get_offset_from_address(acc_uint64l_t const addr) const
+upx_uint64_t
+PackLinuxElf64::elf_get_offset_from_address(upx_uint64_t const addr) const
 {
     Elf64_Phdr const *phdr = phdri;
     int j = e_phnum;
     for (; --j>=0; ++phdr) if (PT_LOAD64 == get_te32(&phdr->p_type)) {
-        acc_uint64l_t const t = addr - get_te64(&phdr->p_vaddr);
+        upx_uint64_t const t = addr - get_te64(&phdr->p_vaddr);
         if (t < get_te64(&phdr->p_filesz)) {
             return t + get_te64(&phdr->p_offset);
         }
@@ -3258,7 +3263,7 @@ PackLinuxElf64::elf_find_dynamic(unsigned int const key) const
     Elf64_Dyn const *dynp= dynseg;
     if (dynp)
     for (; Elf64_Dyn::DT_NULL!=dynp->d_tag; ++dynp) if (get_te64(&dynp->d_tag)==key) {
-        acc_uint64l_t const t= elf_get_offset_from_address(get_te64(&dynp->d_val));
+        upx_uint64_t const t= elf_get_offset_from_address(get_te64(&dynp->d_val));
         if (t) {
             return (size_t)t + file_image;
         }
@@ -3267,7 +3272,7 @@ PackLinuxElf64::elf_find_dynamic(unsigned int const key) const
     return 0;
 }
 
-acc_uint64l_t
+upx_uint64_t
 PackLinuxElf64::elf_unsigned_dynamic(unsigned int const key) const
 {
     Elf64_Dyn const *dynp= dynseg;
@@ -3480,11 +3485,13 @@ void PackLinuxElf32::unpack(OutputFile *fo)
             }
         }
     }
-    if (( (unsigned)(get_te32(&ehdri.e_entry) - load_va) + up4(lsize) +
-            ph.getPackHeaderSize() + sizeof(overlay_offset)) < up4(fi->st_size())) {
+    if (is_shlib
+    ||  ((unsigned)(get_te32(&ehdri.e_entry) - load_va) + up4(lsize) +
+                ph.getPackHeaderSize() + sizeof(overlay_offset))
+            < up4(fi->st_size())) {
         // Loader is not at end; skip past it.
-        // total_in does not include n*szb_info, so we use SEEK_CUR.
-        fi->seek(up4(total_in) - total_in + lsize, SEEK_CUR);
+        funpad4(fi);  // MATCH01
+        fi->seek(lsize, SEEK_CUR);
     }
 
     // The gaps between PT_LOAD and after last PT_LOAD
