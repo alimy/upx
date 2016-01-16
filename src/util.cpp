@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,7 +22,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -36,11 +36,29 @@
 #  pragma warning(disable: 4201 4214 4514)
 #endif
 #define ACC_WANT_ACC_INCI_H 1
+#include "miniacc.h"
+#define ACC_WANT_ACCLIB_GETOPT 1
 #define ACC_WANT_ACCLIB_HSREAD 1
 #define ACC_WANT_ACCLIB_MISC 1
 #define ACC_WANT_ACCLIB_UA 1
 #define ACC_WANT_ACCLIB_WILDARGV 1
+#undef HAVE_MKDIR
 #include "miniacc.h"
+
+
+/*************************************************************************
+// bele.h
+**************************************************************************/
+
+namespace N_BELE_CTP {
+const BEPolicy be_policy;
+const LEPolicy le_policy;
+}
+
+namespace N_BELE_RTP {
+const BEPolicy be_policy;
+const LEPolicy le_policy;
+}
 
 
 /*************************************************************************
@@ -51,6 +69,13 @@ int __acc_cdecl_qsort be16_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_be16(e1);
     const unsigned d2 = get_be16(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int __acc_cdecl_qsort be24_compare(const void *e1, const void *e2)
+{
+    const unsigned d1 = get_be24(e1);
+    const unsigned d2 = get_be24(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
@@ -72,6 +97,13 @@ int __acc_cdecl_qsort le16_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_le16(e1);
     const unsigned d2 = get_le16(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int __acc_cdecl_qsort le24_compare(const void *e1, const void *e2)
+{
+    const unsigned d1 = get_le24(e1);
+    const unsigned d2 = get_le24(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
@@ -97,6 +129,13 @@ int __acc_cdecl_qsort be16_compare_signed(const void *e1, const void *e2)
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
+int __acc_cdecl_qsort be24_compare_signed(const void *e1, const void *e2)
+{
+    const int d1 = get_be24_signed(e1);
+    const int d2 = get_be24_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
 int __acc_cdecl_qsort be32_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_be32_signed(e1);
@@ -115,6 +154,13 @@ int __acc_cdecl_qsort le16_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_le16_signed(e1);
     const int d2 = get_le16_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int __acc_cdecl_qsort le24_compare_signed(const void *e1, const void *e2)
+{
+    const int d1 = get_le24_signed(e1);
+    const int d2 = get_le24_signed(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
@@ -331,7 +377,7 @@ bool fn_is_same_file(const char *n1, const char *n2)
 
 #if 0 // not used
 
-#if defined(HAVE_LOCALTIME)
+#if (HAVE_LOCALTIME)
 void tm2str(char *s, size_t size, const struct tm *tmp)
 {
     upx_snprintf(s, size, "%04d-%02d-%02d %02d:%02d:%02d",
@@ -345,9 +391,9 @@ void tm2str(char *s, size_t size, const struct tm *tmp)
 void time2str(char *s, size_t size, const time_t *t)
 {
     assert(size >= 18);
-#if defined(HAVE_LOCALTIME)
+#if (HAVE_LOCALTIME)
     tm2str(s, size, localtime(t));
-#elif defined(HAVE_CTIME)
+#elif (HAVE_CTIME)
     const char *p = ctime(t);
     memset(s, ' ', 16);
     memcpy(s + 2, p + 4, 6);
@@ -375,6 +421,8 @@ bool set_method_name(char *buf, size_t size, int method, int level)
         alg = "NRV2D";
     else if (M_IS_NRV2E(method))
         alg = "NRV2E";
+    else if (M_IS_LZMA(method))
+        alg = "LZMA";
     else
     {
         alg = "???";
@@ -420,7 +468,7 @@ bool file_exists(const char *name)
         return true;
 
     /* return true if we can lstat it */
-#if defined(HAVE_LSTAT)
+#if (HAVE_LSTAT)
     //memset(&st, 0, sizeof(st));
     r = lstat(name, &st);
     if (r != -1)
@@ -532,6 +580,11 @@ unsigned get_ratio(unsigned u_len, unsigned c_len)
 
 extern "C" {
 
+// FIXME - quick hack for arm-wince-gcc-3.4 (Debian pocketpc-*.deb packages)
+#if 1 && (ACC_ARCH_ARM) && defined(__pe__) && !defined(__CEGCC__) && !defined(_WIN32)
+int dup(int fd) { UNUSED(fd); return -1; }
+#endif
+
 #if defined(__DJGPP__)
 int _is_executable(const char *, int, const char *)
 {
@@ -539,7 +592,7 @@ int _is_executable(const char *, int, const char *)
 }
 
 // FIXME: something wants to link in ctime.o
-time_t mktime(struct tm *)
+time_t XXX_mktime(struct tm *)
 {
     return 0;
 }

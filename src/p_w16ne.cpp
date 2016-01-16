@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -31,6 +31,7 @@
 #include "filter.h"
 #include "packer.h"
 #include "p_w16ne.h"
+#include "linker.h"
 
 
 /*************************************************************************
@@ -40,6 +41,7 @@
 PackW16Ne::PackW16Ne(InputFile *f) :
     super(f)
 {
+    bele = &N_BELE_RTP::le_policy;
 }
 
 
@@ -56,7 +58,7 @@ const int *PackW16Ne::getFilters() const
 }
 
 
-int PackW16Ne::buildLoader(const Filter *ft)
+void PackW16Ne::buildLoader(const Filter *ft)
 {
     // prepare loader
 //    initLoader(nrv_loader,sizeof(nrv_loader));
@@ -67,7 +69,12 @@ int PackW16Ne::buildLoader(const Filter *ft)
 //        addLoader("...");
     }
 //
-    return getLoaderSize();
+}
+
+
+Linker* PackW16Ne::newLinker() const
+{
+    return new ElfLinkerX86;
 }
 
 

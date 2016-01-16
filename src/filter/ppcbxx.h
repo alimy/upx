@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
-   Copyright (C) 2004-2005 John F. Reiser
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2004-2010 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -23,7 +23,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    John F. Reiser
    <jreiser@users.sourceforge.net>
@@ -47,7 +47,7 @@ static int F(Filter *f)
     // scan
     const upx_byte *b = f->buf;
 #endif
-    const unsigned size  = umin(f->buf_len, -(~0u<<(32 - (6+ W_CTO))));
+    const unsigned size  = umin(f->buf_len, 0u - (~0u<<(32 - (6+ W_CTO))));
     const unsigned size4 = size -4;
 
     unsigned ic;
@@ -58,7 +58,7 @@ static int F(Filter *f)
     {
         unsigned char buf[256];
         unsigned short wbuf[256];
-        const size_t WW = (size_t)0 - (~(size_t)0) << W_CTO; // ???
+        const size_t WW = (size_t)0 - ((~(size_t)0) << W_CTO); // ???
         memset(wbuf, 0, sizeof(wbuf));
         memset(buf     , 0,       WW);
         memset(buf + WW, 1, 256 - WW);
@@ -72,9 +72,11 @@ static int F(Filter *f)
         }
 
         if (getcto(f, buf) < 0) {
-            if (0!=W_CTO)  // FIXME: what is this ???
-                return -1;
+#if (W_CTO != 0)
+            return -1;
+#else
             f->cto = 0;
+#endif
         }
     }
     const unsigned char cto8 = f->cto;
@@ -95,8 +97,9 @@ static int F(Filter *f)
             lastcall = ic;
         }
         else {
-            assert(0==W_CTO  // FIXME: what is this ???
-            || (~(~0u<<W_CTO) & (word>>(24+2 - W_CTO))) != cto8);  // this should not happen
+#if (W_CTO != 0)
+            assert((~(~0u<<W_CTO) & (word>>(24+2 - W_CTO))) != cto8);  // this should not happen
+#endif
             lastnoncall = ic;
             noncalls++;
         }
@@ -105,8 +108,9 @@ static int F(Filter *f)
     f->calls = calls;
     f->noncalls = noncalls;
     f->lastcall = lastcall;
+    ACC_UNUSED(lastnoncall);
 
-#if 0
+#if 0 || defined(TESTING)
     printf("\ncalls=%d noncalls=%d text_size=%x calltrickoffset=%x\n",
         calls,noncalls,size,cto8);
 #endif
@@ -122,7 +126,7 @@ static int F(Filter *f)
 static int U(Filter *f)
 {
     upx_byte *b = f->buf;
-    const unsigned size4 = umin(f->buf_len - 4, -(~0u<<(32 - (6+ W_CTO))));
+    const unsigned size4 = umin(f->buf_len - 4, 0u - (~0u<<(32 - (6+ W_CTO))));
     const unsigned addvalue = f->addvalue;
 
     unsigned ic;

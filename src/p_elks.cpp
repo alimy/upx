@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -94,13 +94,12 @@ void PackElks8086::readKernel()
 //
 **************************************************************************/
 
-int PackElks8086::buildLoader(const Filter *ft)
+void PackElks8086::buildLoader(const Filter *ft)
 {
     // prepare loader
     initLoader(nrv_loader, sizeof(nrv_loader));
     // FIXME
     UNUSED(ft);
-    return getLoaderSize();
 }
 
 
@@ -113,7 +112,7 @@ void PackElks8086::pack(OutputFile *fo)
     ft.buf_len = ph.u_len;
     ft.addvalue = kernel_entry;
     // compress
-    compressWithFilters(&ft, overlap_range);
+    compressWithFilters(&ft, overlap_range, NULL_cconf);
 
     const unsigned lsize = getLoaderSize();
     MemBuffer loader(lsize);
@@ -122,10 +121,11 @@ void PackElks8086::pack(OutputFile *fo)
     patchPackHeader(loader, lsize);
 #if 0
     // FIXME
-    patchFilter32(loader, lsize, &ft);
-    patch_le32(loader, lsize, "ESI1", zimage_offset + lsize);
-    patch_le32(loader, lsize, "KEIP", kernel_entry);
-    patch_le32(loader, lsize, "STAK", stack_during_uncompression);
+    defineFilterSymbols(&ft);
+    defineDecompressorSymbols();
+    //patch_le32(loader, lsize, "ESI1", zimage_offset + lsize);
+    //patch_le32(loader, lsize, "KEIP", kernel_entry);
+    //patch_le32(loader, lsize, "STAK", stack_during_uncompression);
 #endif
 
     boot_sect_t * const bs = (boot_sect_t *) ((unsigned char *) setup_buf);

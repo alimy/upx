@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,7 +22,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -61,10 +61,10 @@ const FilterImp::FilterEntry *FilterImp::getFilter(int id)
         memset(filter_map, 0xff, sizeof(filter_map));
         for (int i = 0; i < n_filters; i++)
         {
-            int fid = filters[i].id;
-            assert(fid >= 0 && fid <= 255);
-            assert(filter_map[fid] == 0xff);
-            filter_map[fid] = (unsigned char) i;
+            int filter_id = filters[i].id;
+            assert(filter_id >= 0 && filter_id <= 255);
+            assert(filter_map[filter_id] == 0xff);
+            filter_map[filter_id] = (unsigned char) i;
         }
         done = true;
     }
@@ -83,6 +83,20 @@ bool Filter::isValidFilter(int filter_id)
 {
     const FilterImp::FilterEntry * const fe = FilterImp::getFilter(filter_id);
     return fe != NULL;
+}
+
+bool Filter::isValidFilter(int filter_id, const int *allowed_filters)
+{
+    if (!isValidFilter(filter_id))
+        return false;
+    if (filter_id == 0)
+        return true;
+    if (allowed_filters == NULL)
+        return false;
+    while (*allowed_filters != FT_END)
+        if (*allowed_filters++ == filter_id)
+            return true;
+    return false;
 }
 
 

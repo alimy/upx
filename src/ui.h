@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,28 +22,22 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_UI_H
-#define __UPX_UI_H
+#define __UPX_UI_H 1
 
 class InputFile;
 class OutputFile;
 class Packer;
 class UiPacker;
 
-#if defined(WITH_GUI)
-class CMainDlg;
-#endif
-
 
 /*************************************************************************
 //
 **************************************************************************/
-
-struct UiPacker__State;
 
 class UiPacker
 {
@@ -73,16 +67,15 @@ public:
     virtual void uiFileInfoEnd();
 
     // callback
-    typedef upx_progress_callback_t cb_t;
     virtual void startCallback(unsigned u_len, unsigned step,
                                int pass, int total_passes);
     virtual void firstCallback();
     virtual void finalCallback(unsigned u_len, unsigned c_len);
     virtual void endCallback();
-    virtual cb_t *getCallback() { return &cb; }
+    virtual void endCallback(bool done);
+    virtual upx_callback_t *getCallback() { return &cb; }
 protected:
-    static void __UPX_CDECL callback(upx_uint isize, upx_uint osize,
-                                     int, void *);
+    static void __acc_cdecl progress_callback(upx_callback_p cb, unsigned, unsigned);
     virtual void doCallback(unsigned isize, unsigned osize);
 
 protected:
@@ -92,15 +85,19 @@ public:
     static void uiHeader();
     static void uiFooter(const char *n);
 
+    int ui_pass;
+    int ui_total_passes;
+
 protected:
     virtual void printInfo(int nl=0);
     const Packer *p;
 
     // callback
-    cb_t cb;
+    upx_callback_t cb;
 
     // internal state
-    UiPacker__State *s;
+    struct State;
+    State *s;
 
     // totals
     static long total_files;
@@ -113,10 +110,6 @@ protected:
     static long update_u_len;
     static long update_fc_len;
     static long update_fu_len;
-
-#if defined(WITH_GUI)
-    CMainDlg* pMain;
-#endif
 };
 
 

@@ -83,10 +83,13 @@
 #undef NO_FLOAT
 #undef LDOUBLE
 #if 1
-#  define NO_FLOAT
-#  define float     error_no_float
-#  define double    error_no_float
-#elif 0 || defined(HAVE_LONG_DOUBLE)
+#  define NO_FLOAT 1
+#  if (ACC_CC_SUNPROC)
+#  else
+#  define float     error no_float
+#  define double    error no_float
+#  endif
+#elif 0 || (HAVE_LONG_DOUBLE)
 #  define LDOUBLE   long double
 #else
 #  define LDOUBLE   double
@@ -260,7 +263,7 @@ static void fmtint(char *buffer, size_t *currlen, size_t maxlen,
 // floating format support
 **************************************************************************/
 
-#if !defined(NO_FLOAT)
+#if !(NO_FLOAT)
 
 static LDOUBLE abs_val(LDOUBLE value)
 {
@@ -333,7 +336,7 @@ static double my_modf(double x0, double *iptr)
 static void fmtfp (char *buffer, size_t *currlen, size_t maxlen,
                    LDOUBLE fvalue, int min, int max, int flags)
 {
-    /* avoid warnings with `gcc -Wshadow' */
+    /* avoid warnings with 'gcc -Wshadow' */
 #undef index
 #define index iindex
     int signvalue = 0;
@@ -487,7 +490,7 @@ static void fmtfp (char *buffer, size_t *currlen, size_t maxlen,
 }
 
 
-#endif /* !defined(NO_FLOAT) */
+#endif /* !(NO_FLOAT) */
 
 
 /*************************************************************************
@@ -498,7 +501,7 @@ static size_t dopr(char *buffer, size_t maxlen, const char *format, va_list args
 {
     char ch;
     LLONG value;
-#if !defined(NO_FLOAT)
+#if !(NO_FLOAT)
     LDOUBLE fvalue;
 #endif
     const char *strvalue;
@@ -662,7 +665,7 @@ static size_t dopr(char *buffer, size_t maxlen, const char *format, va_list args
                     value = (long)va_arg (args, unsigned int);
                 fmtint (buffer, &currlen, maxlen, value, 16, min, max, flags);
                 break;
-#if !defined(NO_FLOAT)
+#if !(NO_FLOAT)
             case 'f':
                 if (cflags == DP_C_LDOUBLE)
                     fvalue = va_arg (args, LDOUBLE);
@@ -695,7 +698,7 @@ static size_t dopr(char *buffer, size_t maxlen, const char *format, va_list args
             case 'g':
                 assert(0);
                 exit(255);
-#endif /* !defined(NO_FLOAT) */
+#endif /* !(NO_FLOAT) */
             case 'c':
                 dopr_outch (buffer, &currlen, maxlen, va_arg (args, int));
                 break;

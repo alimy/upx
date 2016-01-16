@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2006 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,11 +22,14 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
+#include "compress.h"
+#include "packmast.h"
+#include "packer.h"
 
 
 /*************************************************************************
@@ -48,8 +51,9 @@ void show_head(void)
     fg = con_fg(f,FG_GREEN);
     con_fprintf(f,
                 "                       Ultimate Packer for eXecutables\n"
-                "    Copyright (C) 1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006\n"
+                "                          Copyright (C) 1996 - %s\n"
                 "UPX %-10s  Markus Oberhumer, Laszlo Molnar & John Reiser  %14s\n\n",
+                UPX_VERSION_YEAR,
 #if (ACC_OS_DOS16 || ACC_OS_DOS32)
                 V("d"),
 #elif (ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
@@ -88,7 +92,79 @@ void show_usage(void)
 //
 **************************************************************************/
 
-void show_help(int x)
+struct PackerNames
+{
+    struct Entry {
+        const char* fname;
+        const char* sname;
+    };
+    Entry names[64];
+    size_t names_count;
+    const options_t *o;
+    PackerNames() : names_count(0), o(NULL) { }
+    void add(const Packer *p)
+    {
+        p->assertPacker();
+        assert(names_count < 64);
+        names[names_count].fname = p->getFullName(o);
+        names[names_count].sname = p->getName();
+        names_count++;
+    }
+    static Packer* visit(Packer *p, void *user)
+    {
+        PackerNames *self = (PackerNames *) user;
+        self->add(p);
+        delete p; p = NULL;
+        return NULL;
+    }
+    static int __acc_cdecl_qsort cmp_fname(const void *a, const void *b) {
+        return strcmp(((const Entry *) a)->fname, ((const Entry *) b)->fname);
+    }
+    static int __acc_cdecl_qsort cmp_sname(const void *a, const void *b) {
+        return strcmp(((const Entry *) a)->sname, ((const Entry *) b)->sname);
+    }
+};
+
+static void show_all_packers(FILE *f, int verbose)
+{
+    options_t o; o.reset();
+    PackerNames pn; pn.o = &o;
+    PackMaster::visitAllPackers(pn.visit, NULL, &o, &pn);
+    qsort(pn.names, pn.names_count, sizeof(PackerNames::Entry), pn.cmp_fname);
+    size_t pos = 0;
+    for (size_t i = 0; i < pn.names_count; ++i)
+    {
+        const char *fn = pn.names[i].fname;
+        const char *sn = pn.names[i].sname;
+        if (verbose)
+        {
+            con_fprintf(f, "    %-32s %s\n", fn, sn);
+        }
+        else
+        {
+            size_t fl = strlen(fn);
+            if (pos == 0) {
+                con_fprintf(f, "  %s", fn);
+                pos = 2 + fl;
+            } else if (pos + 1 + fl > 80) {
+                con_fprintf(f, "\n  %s", fn);
+                pos = 2 + fl;
+            } else {
+                con_fprintf(f, " %s", fn);
+                pos += 1 + fl;
+            }
+        }
+    }
+    if (!verbose && pn.names_count)
+        con_fprintf(f, "\n");
+}
+
+
+/*************************************************************************
+//
+**************************************************************************/
+
+void show_help(int verbose)
 {
     FILE *f = con_term;
     int fg;
@@ -105,8 +181,8 @@ void show_help(int x)
                 "  -d     decompress                        -l    list compressed file\n"
                 "  -t     test compressed file              -V    display version number\n"
                 "  -h     give %s help                    -L    display software license\n%s",
-                x == 0 ? "" : "  --best compress best (can be slow for big files)\n",
-                x == 0 ? "more" : "this", x == 0 ? "" : "\n");
+                verbose == 0 ? "" : "  --best compress best (can be slow for big files)\n",
+                verbose == 0 ? "more" : "this", verbose == 0 ? "" : "\n");
 
     fg = con_fg(f,FG_YELLOW);
     con_fprintf(f,"Options:\n");
@@ -114,22 +190,29 @@ void show_help(int x)
 
     con_fprintf(f,
                 "  -q     be quiet                          -v    be verbose\n"
-                "  -oFILE write output to `FILE'\n"
+                "  -oFILE write output to 'FILE'\n"
                 //"  -f     force overwrite of output files and compression of suspicious files\n"
                 "  -f     force compression of suspicious files\n"
                 "%s%s"
-                , (x == 0) ? "  -k     keep backup files\n" : ""
+                , (verbose == 0) ? "  -k     keep backup files\n" : ""
 #if 1
-                , (x > 0) ? "  --no-color, --mono, --color, --no-progress   change look\n" : ""
+                , (verbose > 0) ? "  --no-color, --mono, --color, --no-progress   change look\n" : ""
 #else
                 , ""
 #endif
                 );
 
-    if (x > 0)
+    if (verbose > 0)
     {
         fg = con_fg(f,FG_YELLOW);
-        con_fprintf(f,"\nBackup options:\n");
+        con_fprintf(f,"\nCompression tuning options:\n");
+        fg = con_fg(f,fg);
+        con_fprintf(f,
+                    "  --brute             try all available compression methods & filters [slow]\n"
+                    "  --ultra-brute       try even more compression variants [very slow]\n"
+                    "\n");
+        fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"Backup options:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  -k, --backup        keep backup files\n"
@@ -144,26 +227,16 @@ void show_help(int x)
                     "  --overlay=skip      don't compress a file with an overlay\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
-        con_fprintf(f,"Options for atari/tos:\n");
-        fg = con_fg(f,fg);
-        con_fprintf(f,
-                    "  --all-methods       try all available compression methods\n"
-                    "\n");
-        fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for djgpp2/coff:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --coff              produce COFF output [default: EXE]\n"
-                    "  --all-methods       try all available compression methods\n"
-                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/com:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --8086              make compressed com work on any 8086\n"
-                    "  --all-methods       try all available compression methods\n"
-                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/exe:\n");
@@ -171,15 +244,12 @@ void show_help(int x)
         con_fprintf(f,
                     "  --8086              make compressed exe work on any 8086\n"
                     "  --no-reloc          put no relocations in to the exe header\n"
-                    "  --all-methods       try all available compression methods\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/sys:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --8086              make compressed sys work on any 8086\n"
-                    "  --all-methods       try all available compression methods\n"
-                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
 #if 0
         fg = con_fg(f,FG_YELLOW);
@@ -194,24 +264,10 @@ void show_help(int x)
         con_fprintf(f,"Options for ps1/exe:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
-                    "  --all-methods       try all available compression methods\n"
                     "  --8-bit             uses 8 bit size compression [default: 32 bit]\n"
-                    "  --console-run       enables client/host transfer compatibility\n"
+                    "  --8mib-ram          8 megabyte memory limit [default: 2 MiB]\n"
+                    "  --boot-only         disables client/host transfer compatibility\n"
                     "  --no-align          don't align to 2048 bytes [enables: --console-run]\n"
-                    "\n");
-        fg = con_fg(f,FG_YELLOW);
-        con_fprintf(f,"Options for tmt/adam:\n");
-        fg = con_fg(f,fg);
-        con_fprintf(f,
-                    "  --all-methods       try all available compression methods\n"
-                    "  --all-filters       try all available preprocessing filters\n"
-                    "\n");
-        fg = con_fg(f,FG_YELLOW);
-        con_fprintf(f,"Options for vmlinuz/386\n");
-        fg = con_fg(f,fg);
-        con_fprintf(f,
-                    "  --all-methods       try all available compression methods\n"
-                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for watcom/le:\n");
@@ -220,7 +276,7 @@ void show_help(int x)
                     "  --le                produce LE output [default: EXE]\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
-        con_fprintf(f,"Options for win32/pe & rtm32/pe:\n");
+        con_fprintf(f,"Options for win32/pe, rtm32/pe & arm/pe:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --compress-exports=0    do not compress the export section\n"
@@ -228,60 +284,39 @@ void show_help(int x)
                     "  --compress-icons=0      do not compress any icons\n"
                     "  --compress-icons=1      compress all but the first icon\n"
                     "  --compress-icons=2      compress all but the first icon directory [default]\n"
+                    "  --compress-icons=3      compress all icons\n"
                     "  --compress-resources=0  do not compress any resources at all\n"
                     "  --keep-resource=list    do not compress resources specified by list\n"
                     "  --strip-relocs=0        do not strip relocations\n"
                     "  --strip-relocs=1        strip relocations [default]\n"
-                    "  --all-methods           try all available compression methods\n"
-                    "  --all-filters           try all available preprocessing filters\n"
                     "\n");
     }
 
-    con_fprintf(f,
-                "file..   executables to (de)compress\n"
-                "\n");
-    fg = con_fg(f,FG_YELLOW);
-    con_fprintf(f,"This version supports:\n");
-    fg = con_fg(f,fg);
-    con_fprintf(f,"   "
-// TODO:
-// support for mach/ppc32
-// support for linux elf/ppc32
-// support for linux elf/amd64
-                " arm/pe,"
-                " atari/tos,"
-                " bvmlinuz/386,"
-                " djgpp2/coff,"
-                " dos/com,"
-                " dos/exe,"
-                " dos/sys,"
-                "\n   "
-                //" elks/8086,"
-                " linux/amd64,"
-                " linux/i386,"
-                " linux/ppc32,"
-                " mach/ppc32,"
-                " ps1/exe,"
-                " rtm32/pe,"
-                "\n   "
-                " tmt/adam,"
-                " vmlinux/386,"
-                " vmlinuz/386,"
-                " watcom/le,"
-                //" win16/ne,"
-                " win32/pe"
-                "\n\nUPX comes with ABSOLUTELY NO WARRANTY; for details visit http://upx.sf.net\n"
-//                "\n\nUPX comes with ABSOLUTELY NO WARRANTY; for details type `upx -L'.\n"
+    con_fprintf(f, "file..   executables to (de)compress\n");
+
+    if (verbose > 0)
+    {
+        fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"\nThis version supports:\n");
+        fg = con_fg(f,fg);
+        show_all_packers(f, verbose);
+    }
+    else
+    {
+        con_fprintf(f,"\nType '%s --help' for more detailed help.\n", progname);
+    }
+
+    con_fprintf(f,"\nUPX comes with ABSOLUTELY NO WARRANTY; for details visit http://upx.sf.net\n"
+//                "\nUPX comes with ABSOLUTELY NO WARRANTY; for details type 'upx -L'.\n"
                 "");
 
-
-#if defined(DEBUG) || defined(TESTING)
+#if (DEBUG) || (TESTING)
     fg = con_fg(f,FG_RED);
     con_fprintf(f,"\nWARNING: this version is compiled with"
-#if defined(DEBUG)
+#if (DEBUG)
                 " -DDEBUG"
 #endif
-#if defined(TESTING)
+#if (TESTING)
                 " -DTESTING"
 #endif
                 "\n");
@@ -325,7 +360,7 @@ void show_license(void)
     con_fprintf(f,
         "\n"
         "   Markus F.X.J. Oberhumer              Laszlo Molnar\n"
-        "   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>\n"
+        "   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>\n"
     );
     fg = con_fg(f,fg);
 
@@ -339,25 +374,43 @@ void show_license(void)
 
 void show_version(int x)
 {
-    FILE *f = stdout;
+    FILE *fp = stdout;
+    const char *v;
     UNUSED(x);
+    UNUSED(v);
 
-#if (0 && ACC_CC_GNUC)
-    fprintf(f,"upx %s (gcc 0x%06lx)\n", UPX_VERSION_STRING, ACC_CC_GNUC);
-#else
-    fprintf(f,"upx %s\n", UPX_VERSION_STRING);
+    fprintf(fp, "upx %s\n", UPX_VERSION_STRING);
+#if (WITH_NRV)
+    v = upx_nrv_version_string();
+    if (v != NULL && v[0])
+        fprintf(fp, "NRV data compression library %s\n", v);
 #endif
-#if defined(WITH_NRV)
-    fprintf(f,"NRV data compression library %s\n", nrv_version_string());
+#if (WITH_UCL)
+    v = upx_ucl_version_string();
+    if (v != NULL && v[0])
+        fprintf(fp, "UCL data compression library %s\n", v);
 #endif
-#if defined(WITH_UCL)
-    fprintf(f,"UCL data compression library %s\n", ucl_version_string());
+#if (WITH_ZLIB)
+    v = upx_zlib_version_string();
+    if (v != NULL && v[0])
+        fprintf(fp, "zlib data compression library %s\n", v);
 #endif
-    fprintf(f,"Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer\n");
-    fprintf(f,"Copyright (C) 1996-2006 Laszlo Molnar\n");
-    fprintf(f,"Copyright (C) 2000-2006 John F. Reiser\n");
-    fprintf(f,"Copyright (C) 2002-2006 Jens Medoch\n");
-    fprintf(f,"UPX comes with ABSOLUTELY NO WARRANTY; for details type `%s -L'.\n", progname);
+#if (WITH_LZMA)
+    v = upx_lzma_version_string();
+    if (v != NULL && v[0])
+        fprintf(fp, "LZMA SDK version %s\n", v);
+#endif
+    fprintf(fp, "Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer\n");
+    fprintf(fp, "Copyright (C) 1996-2010 Laszlo Molnar\n");
+    fprintf(fp, "Copyright (C) 2000-2010 John F. Reiser\n");
+    fprintf(fp, "Copyright (C) 2002-2010 Jens Medoch\n");
+#if (WITH_ZLIB)
+    fprintf(fp, "Copyright (C) 1995" "-2005 Jean-loup Gailly and Mark Adler\n");
+#endif
+#if (WITH_LZMA)
+    fprintf(fp, "Copyright (C) 1999" "-2006 Igor Pavlov\n");
+#endif
+    fprintf(fp, "UPX comes with ABSOLUTELY NO WARRANTY; for details type '%s -L'.\n", progname);
 }
 
 

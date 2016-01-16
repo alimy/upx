@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,13 +21,13 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_P_WCLE_H
-#define __UPX_P_WCLE_H
+#define __UPX_P_WCLE_H 1
 
 
 /*************************************************************************
@@ -38,10 +38,11 @@ class PackWcle : public Packer, public LeFile
 {
     typedef Packer super;
 public:
-    PackWcle(InputFile *f) : super(f), LeFile(f){};
+    PackWcle(InputFile *f) : super(f), LeFile(f) { bele = &N_BELE_RTP::le_policy; }
     virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_WATCOM_LE; }
     virtual const char *getName() const { return "watcom/le"; }
+    virtual const char *getFullName(const options_t *) const { return "i386-dos32.watcom.le"; }
     virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
@@ -54,7 +55,8 @@ public:
 protected:
     virtual void handleStub(OutputFile *fo);
 
-    virtual int buildLoader(const Filter *ft);
+    virtual void buildLoader(const Filter *ft);
+    virtual Linker* newLinker() const;
 
     virtual void readObjectTable();
     virtual void encodeObjectTable();
@@ -72,7 +74,7 @@ protected:
     virtual void encodeFixups();
     virtual void decodeFixups();
 
-    virtual void encodeImage(const Filter *ft);
+    virtual void encodeImage(Filter *ft);
     virtual void decodeImage();
 
     static void virt2rela(const le_object_table_entry_t *, unsigned *objn, unsigned *addr);

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -31,6 +31,7 @@
 #include "packmast.h"
 #include "packer.h"
 #include "lefile.h"
+#include "pefile.h"
 #include "p_elf.h"
 
 #include "p_com.h"
@@ -39,7 +40,7 @@
 #include "p_unix.h"
 #include "p_lx_exc.h"
 #include "p_lx_elf.h"
-#include "p_lx_sep.h"
+//#include "p_lx_sep.h"
 #include "p_lx_sh.h"
 #include "p_lx_interp.h"
 #include "p_sys.h"
@@ -60,14 +61,14 @@
 //
 **************************************************************************/
 
-PackMaster::PackMaster(InputFile *f, struct options_t *o) :
+PackMaster::PackMaster(InputFile *f, options_t *o) :
     fi(f), p(NULL)
 {
-    // replace options with local options
+    // replace global options with local options
     saved_opt = o;
     if (o)
     {
-        this->local_options = *o;       // struct copy
+        memcpy(&this->local_options, o, sizeof(*o)); // struct copy
         opt = &this->local_options;
     }
 }
@@ -77,7 +78,7 @@ PackMaster::~PackMaster()
 {
     fi = NULL;
     delete p; p = NULL;
-    // restore options
+    // restore global options
     if (saved_opt)
         opt = saved_opt;
     saved_opt = NULL;
@@ -88,13 +89,12 @@ PackMaster::~PackMaster()
 //
 **************************************************************************/
 
-typedef Packer* (*try_function)(Packer *p, InputFile *f);
-
-static Packer* try_pack(Packer *p, InputFile *f)
+static Packer* try_pack(Packer *p, void *user)
 {
     if (p == NULL)
         return NULL;
-#if !defined(UNUPX)
+    InputFile *f = (InputFile *) user;
+    p->assertPacker();
     try {
         p->initPackHeader();
         f->seek(0,SEEK_SET);
@@ -110,16 +110,17 @@ static Packer* try_pack(Packer *p, InputFile *f)
         delete p;
         throw;
     }
-#endif /* UNUPX */
     delete p;
     return NULL;
 }
 
 
-static Packer* try_unpack(Packer *p, InputFile *f)
+static Packer* try_unpack(Packer *p, void *user)
 {
     if (p == NULL)
         return NULL;
+    InputFile *f = (InputFile *) user;
+    p->assertPacker();
     try {
         p->initPackHeader();
         f->seek(0,SEEK_SET);
@@ -148,7 +149,7 @@ static Packer* try_unpack(Packer *p, InputFile *f)
 //
 **************************************************************************/
 
-static Packer* try_packers(InputFile *f, try_function func)
+Packer* PackMaster::visitAllPackers(visit_func_t func, InputFile *f, const options_t *o, void *user)
 {
     Packer *p = NULL;
 
@@ -157,123 +158,205 @@ static Packer* try_packers(InputFile *f, try_function func)
     //
     // .exe
     //
-    if (!opt->dos_exe.force_stub)
+    if (!o->dos_exe.force_stub)
     {
-        if ((p = func(new PackDjgpp2(f),f)) != NULL)
+        if ((p = func(new PackDjgpp2(f), user)) != NULL)
             return p;
-        if ((p = func(new PackTmt(f),f)) != NULL)
+        delete p; p = NULL;
+        if ((p = func(new PackTmt(f), user)) != NULL)
             return p;
-        if ((p = func(new PackWcle(f),f)) != NULL)
+        delete p; p = NULL;
+        if ((p = func(new PackWcle(f), user)) != NULL)
             return p;
+        delete p; p = NULL;
 #if 0
-        if ((p = func(new PackVxd(f),f)) != NULL)
+        if ((p = func(new PackVxd(f), user)) != NULL)
             return p;
+        delete p; p = NULL;
 #endif
-        if ((p = func(new PackW16Ne(f),f)) != NULL)
+#if 0
+        if ((p = func(new PackW16Ne(f), user)) != NULL)
             return p;
-        if ((p = func(new PackArmPe(f),f)) != NULL)
+        delete p; p = NULL;
+#endif
+        if ((p = func(new PackW32Pe(f), user)) != NULL)
             return p;
-        if ((p = func(new PackW32Pe(f),f)) != NULL)
-            return p;
+        delete p; p = NULL;
     }
-    if ((p = func(new PackExe(f),f)) != NULL)
+    if ((p = func(new PackArmPe(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
+    if ((p = func(new PackExe(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
 
     //
     // atari
     //
-    if ((p = func(new PackTos(f),f)) != NULL)
+    if ((p = func(new PackTos(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
 
     //
     // linux kernel
     //
-    if ((p = func(new PackVmlinuxI386(f),f)) != NULL)
+    if ((p = func(new PackVmlinuxARMEL(f), user)) != NULL)
         return p;
-    if ((p = func(new PackVmlinuzI386(f),f)) != NULL)
+    delete p; p = NULL;
+    if ((p = func(new PackVmlinuxARMEB(f), user)) != NULL)
         return p;
-    if ((p = func(new PackBvmlinuzI386(f),f)) != NULL)
+    delete p; p = NULL;
+    if ((p = func(new PackVmlinuxPPC32(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
+    if ((p = func(new PackVmlinuxAMD64(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
+    if ((p = func(new PackVmlinuxI386(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
+    if ((p = func(new PackVmlinuzI386(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
+    if ((p = func(new PackBvmlinuzI386(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
+    if ((p = func(new PackVmlinuzARMEL(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
 #if 0
-    if ((p = func(new PackElks8086(f),f)) != NULL)
+    if ((p = func(new PackElks8086(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
 #endif
 
     //
     // linux
     //
-    if (!opt->o_unix.force_execve)
+    if (!o->o_unix.force_execve)
     {
 #if 0
-        if (opt->unix.script_name)
+        if (o->unix.script_name)
         {
-            if ((p = func(new PackLinuxI386sep(f),f)) != NULL)
+            if ((p = func(new PackLinuxI386sep(f), user)) != NULL)
                 return p;
+            delete p; p = NULL;
         }
 #endif
-        if (opt->o_unix.use_ptinterp) {
-            if ((p = func(new PackLinuxElf32x86interp(f),f)) != NULL)
+        if (o->o_unix.use_ptinterp) {
+            if ((p = func(new PackLinuxElf32x86interp(f), user)) != NULL)
                 return p;
+            delete p; p = NULL;
         }
-        if ((p = func(new PackLinuxElf64amd(f),f)) != NULL)
+        if ((p = func(new PackFreeBSDElf32x86(f), user)) != NULL)
             return p;
-        if ((p = func(new PackLinuxElf32ppc(f),f)) != NULL)
+        delete p; p = NULL;
+        if ((p = func(new PackNetBSDElf32x86(f), user)) != NULL)
             return p;
-        if ((p = func(new PackLinuxElf32x86(f),f)) != NULL)
+        delete p; p = NULL;
+        if ((p = func(new PackOpenBSDElf32x86(f), user)) != NULL)
             return p;
-        if ((p = func(new PackLinuxI386sh(f),f)) != NULL)
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxElf32x86(f), user)) != NULL)
             return p;
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxElf64amd(f), user)) != NULL)
+            return p;
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxElf32armLe(f), user)) != NULL)
+            return p;
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxElf32armBe(f), user)) != NULL)
+            return p;
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxElf32ppc(f), user)) != NULL)
+            return p;
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxElf32mipsel(f), user)) != NULL)
+            return p;
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxElf32mipseb(f), user)) != NULL)
+            return p;
+        delete p; p = NULL;
+        if ((p = func(new PackLinuxI386sh(f), user)) != NULL)
+            return p;
+        delete p; p = NULL;
     }
-    if ((p = func(new PackLinuxI386(f),f)) != NULL)
+    if ((p = func(new PackBSDI386(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
+    if ((p = func(new PackMachFat(f), user)) != NULL)  // cafebabe conflict
+        return p;
+    delete p; p = NULL;
+    if ((p = func(new PackLinuxI386(f), user)) != NULL)  // cafebabe conflict
+        return p;
+    delete p; p = NULL;
 
     //
     // psone
     //
-    if ((p = func(new PackPs1(f),f)) != NULL)
+    if ((p = func(new PackPs1(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
 
     //
     // .sys and .com
     //
-    if ((p = func(new PackSys(f),f)) != NULL)
+    if ((p = func(new PackSys(f), user)) != NULL)
         return p;
-    if ((p = func(new PackCom(f),f)) != NULL)
+    delete p; p = NULL;
+    if ((p = func(new PackCom(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
 
     // Mach (MacOS X PowerPC)
-    if ((p = func(new PackMachPPC32(f), f)) != NULL)
+    if ((p = func(new PackMachPPC32(f), user)) != NULL)
         return p;
+    delete p; p = NULL;
+    if ((p = func(new PackMachI386(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
+    if ((p = func(new PackMachAMD64(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
+    if ((p = func(new PackMachARMEL(f), user)) != NULL)
+        return p;
+    delete p; p = NULL;
+
+    // 2010-03-12  omit these because PackMachBase<T>::pack4dylib (p_mach.cpp)
+    // does not understand what the Darwin (Apple Mac OS X) dynamic loader
+    // assumes about .dylib file structure.
+    //if ((p = func(new PackDylibI386(f), user)) != NULL)
+    //    return p;
+    //delete p; p = NULL;
+    //if ((p = func(new PackDylibPPC32(f), user)) != NULL)
+    //    return p;
+    //delete p; p = NULL;
+    //if ((p = func(new PackDylibAMD64(f), user)) != NULL)
+    //    return p;
+    //delete p; p = NULL;
 
     return NULL;
 }
 
 
-static Packer *getPacker(InputFile *f)
+Packer *PackMaster::getPacker(InputFile *f)
 {
-    Packer *p = try_packers(f, try_pack);
-    if (!p)
+    Packer *pp = visitAllPackers(try_pack, f, opt, f);
+    if (!pp)
         throwUnknownExecutableFormat();
-    return p;
+    pp->assertPacker();
+    return pp;
 }
 
 
-static Packer *getUnpacker(InputFile *f)
+Packer *PackMaster::getUnpacker(InputFile *f)
 {
-    Packer *p = try_packers(f, try_unpack);
-    if (!p)
+    Packer *pp = visitAllPackers(try_unpack, f, opt, f);
+    if (!pp)
         throwNotPacked();
-    return p;
-}
-
-
-static void assertPacker(const Packer *p)
-{
-    assert(p->getFormat() > 0);
-    assert(p->getFormat() <= 255);
-    assert(p->getVersion() >= 11);
-    assert(p->getVersion() <= 14);
-    assert(strlen(p->getName()) <= 13);
+    pp->assertPacker();
+    return pp;
 }
 
 
@@ -284,7 +367,6 @@ static void assertPacker(const Packer *p)
 void PackMaster::pack(OutputFile *fo)
 {
     p = getPacker(fi);
-    assertPacker(p);
     fi = NULL;
     p->doPack(fo);
 }
@@ -293,7 +375,7 @@ void PackMaster::pack(OutputFile *fo)
 void PackMaster::unpack(OutputFile *fo)
 {
     p = getUnpacker(fi);
-    assertPacker(p);
+    p->assertPacker();
     fi = NULL;
     p->doUnpack(fo);
 }
@@ -302,7 +384,6 @@ void PackMaster::unpack(OutputFile *fo)
 void PackMaster::test()
 {
     p = getUnpacker(fi);
-    assertPacker(p);
     fi = NULL;
     p->doTest();
 }
@@ -311,7 +392,6 @@ void PackMaster::test()
 void PackMaster::list()
 {
     p = getUnpacker(fi);
-    assertPacker(p);
     fi = NULL;
     p->doList();
 }
@@ -319,12 +399,12 @@ void PackMaster::list()
 
 void PackMaster::fileInfo()
 {
-    p = try_packers(fi, try_unpack);
+    p = visitAllPackers(try_unpack, fi, opt, fi);
     if (!p)
-        p = try_packers(fi, try_pack);
+        p = visitAllPackers(try_pack, fi, opt, fi);
     if (!p)
         throwUnknownExecutableFormat(NULL, 1);    // make a warning here
-    assertPacker(p);
+    p->assertPacker();
     fi = NULL;
     p->doFileInfo();
 }

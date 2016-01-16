@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -31,9 +31,10 @@
 #include "filter.h"
 #include "packer.h"
 #include "p_tmt.h"
+#include "linker.h"
 
 static const
-#include "stub/l_tmt.h"
+#include "stub/i386-dos32.tmt.h"
 
 #define EXTRA_INFO      4       // original entry point
 
@@ -44,6 +45,7 @@ static const
 
 PackTmt::PackTmt(InputFile *f) : super(f)
 {
+    bele = &N_BELE_RTP::le_policy;
     COMPILE_TIME_ASSERT(sizeof(tmt_header_t) == 44);
 }
 
@@ -57,34 +59,46 @@ const int *PackTmt::getCompressionMethods(int method, int level) const
 const int *PackTmt::getFilters() const
 {
     static const int filters[] = {
-        0x26, 0x24, 0x11, 0x14, 0x13, 0x16, 0x25, 0x12, 0x15,
-    -1 };
+        0x26, 0x24, 0x49, 0x46, 0x16, 0x13, 0x14, 0x11,
+        FT_ULTRA_BRUTE, 0x25, 0x15, 0x12,
+    FT_END };
     return filters;
 }
 
 
 unsigned PackTmt::findOverlapOverhead(const upx_bytep buf,
+                                      const upx_bytep tbuf,
                                       unsigned range,
                                       unsigned upper_limit) const
 {
     // make sure the decompressor will be paragraph aligned
-    unsigned o = super::findOverlapOverhead(buf, range, upper_limit);
+    unsigned o = super::findOverlapOverhead(buf, tbuf, range, upper_limit);
     o = ((o + 0x20) &~ 0xf) - (ph.u_len & 0xf);
     return o;
 }
 
 
-int PackTmt::buildLoader(const Filter *ft)
+Linker* PackTmt::newLinker() const
+{
+    return new ElfLinkerX86;
+}
+
+
+void PackTmt::buildLoader(const Filter *ft)
 {
     // prepare loader
-    initLoader(nrv_loader,sizeof(nrv_loader));
+    initLoader(stub_i386_dos32_tmt, sizeof(stub_i386_dos32_tmt));
     addLoader("IDENTSTR,TMTMAIN1",
+              ph.first_offset_found == 1 ? "TMTMAIN1A" : "",
+              "TMTMAIN1B",
               ft->id ? "TMTCALT1" : "",
-              "TMTMAIN2,UPX1HEAD,TMTCUTPO,+0XXXXXX",
-              getDecompressor(),
-              "TMTMAIN5",
-              NULL
-             );
+              "TMTMAIN2,UPX1HEAD,TMTCUTPO",
+              NULL);
+
+    // fake alignment for the start of the decompressor
+    linker->defineSymbol("TMTCUTPO", 0x1000);
+
+    addLoader(getDecompressorSections(), "TMTMAIN5", NULL);
     if (ft->id)
     {
         assert(ft->calls > 0);
@@ -96,7 +110,6 @@ int PackTmt::buildLoader(const Filter *ft)
               "RELOC32J,TMTJUMP1",
               NULL
              );
-    return getLoaderSize();
 }
 
 
@@ -159,7 +172,7 @@ int PackTmt::readFileHeader()
 
     fi->seek(adam_offset,SEEK_SET);
     fi->readx(&ih,sizeof(ih));
-    // FIXME: should add some checks for the values in `ih'
+    // FIXME: should add some checks for the values in 'ih'
 
     return UPX_F_TMT_ADAM;
 #undef H4
@@ -227,33 +240,37 @@ void PackTmt::pack(OutputFile *fo)
     Filter ft(ph.level);
     ft.buf_len = usize;
     // compress
-    compressWithFilters(&ft, 512);
+    upx_compress_config_t cconf; cconf.reset();
+    // limit stack size needed for runtime decompression
+    cconf.conf_lzma.max_num_probs = 1846 + (768 << 4); // ushort: ~28 KiB stack
+    compressWithFilters(&ft, 512, &cconf);
 
     const unsigned lsize = getLoaderSize();
-    MemBuffer loader(lsize);
-    memcpy(loader,getLoader(),lsize);
-
     const unsigned s_point = getLoaderSection("TMTMAIN1");
     int e_len = getLoaderSectionStart("TMTCUTPO");
     const unsigned d_len = lsize - e_len;
     assert(e_len > 0  && s_point > 0);
 
     // patch loader
-    patch_le32(loader,lsize,"JMPO",ih.entry-(ph.u_len+ph.overlap_overhead+d_len));
-    patchFilter32(loader, lsize, &ft);
-    patchPackHeader(loader,e_len);
+    linker->defineSymbol("original_entry", ih.entry);
+    defineDecompressorSymbols();
+    defineFilterSymbols(&ft);
 
-    const unsigned jmp_pos = find_le32(loader,e_len,get_le32("JMPD"));
-    patch_le32(loader,e_len,"JMPD",ph.u_len+ph.overlap_overhead-jmp_pos-4);
-
-    patch_le32(loader,e_len,"ECX0",ph.c_len+d_len);
-    patch_le32(loader,e_len,"EDI0",ph.u_len+ph.overlap_overhead+d_len-1);
-    patch_le32(loader,e_len,"ESI0",ph.c_len+e_len+d_len-1);
-    //fprintf(stderr,"\nelen=%x dlen=%x copy_len=%x  copy_to=%x  oo=%x  jmp_pos=%x  ulen=%x  clen=%x \n\n",
+    linker->defineSymbol("bytes_to_copy", ph.c_len + d_len);
+    linker->defineSymbol("copy_dest", 0u - (ph.u_len + ph.overlap_overhead + d_len - 1));
+    linker->defineSymbol("copy_source", ph.c_len + lsize - 1);
+    //fprintf(stderr,"\nelen=%x dlen=%x copy_len=%x  copy_to=%x  oo=%x  jmp_pos=%x  ulen=%x  c_len=%x \n\n",
     //                e_len,d_len,copy_len,copy_to,ph.overlap_overhead,jmp_pos,ph.u_len,ph.c_len);
 
+    linker->defineSymbol("TMTCUTPO", ph.u_len + ph.overlap_overhead);
+    relocateLoader();
+
+    MemBuffer loader(lsize);
+    memcpy(loader,getLoader(),lsize);
+    patchPackHeader(loader,e_len);
+
     memcpy(&oh,&ih,sizeof(oh));
-    oh.imagesize = ph.c_len+e_len+d_len; // new size
+    oh.imagesize = ph.c_len + lsize; // new size
     oh.entry = s_point; // new entry point
     oh.relocsize = 4;
 

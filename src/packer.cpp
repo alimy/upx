@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2006 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,12 +21,12 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
-//#define WANT_STL
+//#define WANT_STL 1
 #include "conf.h"
 #include "file.h"
 #include "packer.h"
@@ -40,11 +40,13 @@
 **************************************************************************/
 
 Packer::Packer(InputFile *f) :
+    bele(NULL),
     fi(f), file_size(-1), ph_format(-1), ph_version(-1),
-    uip(NULL), ui_pass(0), ui_total_passes(0), linker(NULL),
+    uip(NULL), linker(NULL),
     last_patch(NULL), last_patch_len(0), last_patch_off(0)
 {
-    file_size = f->st.st_size;
+    if (fi != NULL)
+        file_size = fi->st_size();
     uip = new UiPacker(this);
     memset(&ph, 0, sizeof(ph));
 }
@@ -54,6 +56,28 @@ Packer::~Packer()
 {
     delete uip; uip = NULL;
     delete linker; linker = NULL;
+}
+
+
+// for PackMaster
+void Packer::assertPacker() const
+{
+    assert(getFormat() > 0);
+    assert(getFormat() <= 255);
+    assert(getVersion() >= 11);
+    assert(getVersion() <= 14);
+    assert(strlen(getName()) <= 13);
+    // info: 32 is limit for show_all_packers() in help.cpp
+    assert(strlen(getFullName(opt)) <= 28);
+    assert(strlen(getFullName(NULL)) <= 28);
+    if (bele == NULL) fprintf(stderr, "%s\n", getName());
+    assert(bele != NULL);
+#if 1
+    Linker *l = newLinker();
+    if (bele != l->bele) fprintf(stderr, "%s\n", getName());
+    assert(bele == l->bele);
+    delete l;
+#endif
 }
 
 
@@ -138,89 +162,111 @@ bool Packer::testUnpackFormat(int format) const
 }
 
 
+bool ph_skipVerify(const PackHeader &ph)
+{
+    if (M_IS_DEFLATE(ph.method))
+        return false;
+    if (M_IS_LZMA(ph.method))
+        return false;
+    if (ph.level > 1)
+        return false;
+    return true;
+}
+
+
 /*************************************************************************
-// compress
+// compress - wrap call to low-level upx_compress()
 **************************************************************************/
 
-bool Packer::compress(upx_bytep in, upx_bytep out,
-                      unsigned max_offset, unsigned max_match)
+bool Packer::compress(upx_bytep i_ptr, unsigned i_len, upx_bytep o_ptr,
+                      const upx_compress_config_t *cconf_parm)
 {
-#if defined(UNUPX)
-    throwInternalError("compression failed");
-    return false;
-#else
+    ph.u_len = i_len;
     ph.c_len = 0;
     assert(ph.level >= 1); assert(ph.level <= 10);
+
+    // Avoid too many progress bar updates. 64 is s->bar_len in ui.cpp.
+    unsigned step = (ph.u_len < 64*1024) ? 0 : ph.u_len / 64;
 
     // save current checksums
     ph.saved_u_adler = ph.u_adler;
     ph.saved_c_adler = ph.c_adler;
     // update checksum of uncompressed data
-    ph.u_adler = upx_adler32(in, ph.u_len, ph.u_adler);
+    ph.u_adler = upx_adler32(i_ptr, ph.u_len, ph.u_adler);
 
     // set compression paramters
-    upx_compress_config_t conf;
-    memset(&conf, 0xff, sizeof(conf));
-    // arguments
-    if (max_offset != 0)
-        conf.max_offset = max_offset;
-    if (max_match != 0)
-        conf.max_match = max_match;
-    // options
-    if (opt->crp.c_flags != -1)
-        conf.c_flags = opt->crp.c_flags;
-#if 0
-    else
-        // this is based on experimentation
-        conf.c_flags = (ph.level >= 7) ? 0 : 1 | 2;
+    upx_compress_config_t cconf; cconf.reset();
+    if (cconf_parm)
+        cconf = *cconf_parm;
+    // cconf options
+    if (M_IS_NRV2B(ph.method) || M_IS_NRV2D(ph.method) || M_IS_NRV2E(ph.method))
+    {
+        if (opt->crp.crp_ucl.c_flags != -1)
+            cconf.conf_ucl.c_flags = opt->crp.crp_ucl.c_flags;
+        if (opt->crp.crp_ucl.p_level != -1)
+            cconf.conf_ucl.p_level = opt->crp.crp_ucl.p_level;
+        if (opt->crp.crp_ucl.h_level != -1)
+            cconf.conf_ucl.h_level = opt->crp.crp_ucl.h_level;
+        if (opt->crp.crp_ucl.max_offset != UINT_MAX && opt->crp.crp_ucl.max_offset < cconf.conf_ucl.max_offset)
+            cconf.conf_ucl.max_offset = opt->crp.crp_ucl.max_offset;
+        if (opt->crp.crp_ucl.max_match != UINT_MAX && opt->crp.crp_ucl.max_match < cconf.conf_ucl.max_match)
+            cconf.conf_ucl.max_match = opt->crp.crp_ucl.max_match;
+#if (WITH_NRV)
+        if (ph.level >= 7 || (ph.level >= 4 && ph.u_len >= 512*1024))
+            step = 0;
 #endif
-    if (opt->crp.p_level != -1)
-        conf.p_level = opt->crp.p_level;
-    if (opt->crp.h_level != -1)
-        conf.h_level = opt->crp.h_level;
-    if (opt->crp.max_offset != UPX_UINT_MAX && opt->crp.max_offset < conf.max_offset)
-        conf.max_offset = opt->crp.max_offset;
-    if (opt->crp.max_match != UPX_UINT_MAX && opt->crp.max_match < conf.max_match)
-        conf.max_match = opt->crp.max_match;
-
-    // Avoid too many progress bar updates. 64 is s->bar_len in ui.cpp.
-    unsigned step = (ph.u_len < 64*1024) ? 0 : ph.u_len / 64;
-#if defined(WITH_NRV)
-    if (ph.level >= 7 || (ph.level >= 4 && ph.u_len >= 512*1024))
-        step = 0;
-#endif
-    if (ui_pass >= 0)
-        ui_pass++;
-    uip->startCallback(ph.u_len, step, ui_pass, ui_total_passes);
+    }
+    if (M_IS_LZMA(ph.method))
+    {
+        oassign(cconf.conf_lzma.pos_bits, opt->crp.crp_lzma.pos_bits);
+        oassign(cconf.conf_lzma.lit_pos_bits, opt->crp.crp_lzma.lit_pos_bits);
+        oassign(cconf.conf_lzma.lit_context_bits, opt->crp.crp_lzma.lit_context_bits);
+        oassign(cconf.conf_lzma.dict_size, opt->crp.crp_lzma.dict_size);
+        oassign(cconf.conf_lzma.num_fast_bytes, opt->crp.crp_lzma.num_fast_bytes);
+    }
+    if (M_IS_DEFLATE(ph.method))
+    {
+        oassign(cconf.conf_zlib.mem_level, opt->crp.crp_zlib.mem_level);
+        oassign(cconf.conf_zlib.window_bits, opt->crp.crp_zlib.window_bits);
+        oassign(cconf.conf_zlib.strategy, opt->crp.crp_zlib.strategy);
+    }
+    if (uip->ui_pass >= 0)
+        uip->ui_pass++;
+    uip->startCallback(ph.u_len, step, uip->ui_pass, uip->ui_total_passes);
     uip->firstCallback();
 
     //OutputFile::dump("data.raw", in, ph.u_len);
 
     // compress
-    unsigned result[16];
-    memset(result, 0, sizeof(result));
-    int r = upx_compress(in, ph.u_len, out, &ph.c_len,
+    int r = upx_compress(i_ptr, ph.u_len, o_ptr, &ph.c_len,
                          uip->getCallback(),
-                         ph.method, ph.level, &conf, result);
+                         ph.method, ph.level, &cconf, &ph.compress_result);
 
     //uip->finalCallback(ph.u_len, ph.c_len);
     uip->endCallback();
 
     if (r == UPX_E_OUT_OF_MEMORY)
-        throwCantPack("out of memory");
+        throwOutOfMemoryException();
     if (r != UPX_E_OK)
         throwInternalError("compression failed");
 
-    //ph.min_offset_found = result[0];
-    ph.max_offset_found = result[1];
-    //ph.min_match_found = result[2];
-    ph.max_match_found = result[3];
-    //ph.min_run_found = result[4];
-    ph.max_run_found = result[5];
-    ph.first_offset_found = result[6];
-    //ph.same_match_offsets_found = result[7];
-    assert(max_offset == 0 || max_offset >= ph.max_offset_found);
-    assert(max_match == 0 || max_match >= ph.max_match_found);
+    if (M_IS_NRV2B(ph.method) || M_IS_NRV2D(ph.method) || M_IS_NRV2E(ph.method))
+    {
+        const ucl_uint *res = ph.compress_result.result_ucl.result;
+        //ph.min_offset_found = res[0];
+        ph.max_offset_found = res[1];
+        //ph.min_match_found = res[2];
+        ph.max_match_found = res[3];
+        //ph.min_run_found = res[4];
+        ph.max_run_found = res[5];
+        ph.first_offset_found = res[6];
+        //ph.same_match_offsets_found = res[7];
+        if (cconf_parm)
+        {
+            assert(cconf.conf_ucl.max_offset == 0 || cconf.conf_ucl.max_offset >= ph.max_offset_found);
+            assert(cconf.conf_ucl.max_match == 0 || cconf.conf_ucl.max_match >= ph.max_match_found);
+        }
+    }
 
     //printf("\nPacker::compress: %d/%d: %7d -> %7d\n", ph.method, ph.level, ph.u_len, ph.c_len);
     if (!checkCompressionRatio(ph.u_len, ph.c_len))
@@ -230,13 +276,15 @@ bool Packer::compress(upx_bytep in, upx_bytep out,
         return false;
 
     // update checksum of compressed data
-    ph.c_adler = upx_adler32(out, ph.c_len, ph.c_adler);
+    ph.c_adler = upx_adler32(o_ptr, ph.c_len, ph.c_adler);
     // Decompress and verify. Skip this when using the fastest level.
-    if (ph.level > 1)
+    if (!ph_skipVerify(ph))
     {
         // decompress
         unsigned new_len = ph.u_len;
-        r = upx_decompress(out, ph.c_len, in, &new_len, ph.method);
+        r = upx_decompress(o_ptr, ph.c_len, i_ptr, &new_len, ph.method, &ph.compress_result);
+        if (r == UPX_E_OUT_OF_MEMORY)
+            throwOutOfMemoryException();
         //printf("%d %d: %d %d %d\n", ph.method, r, ph.c_len, ph.u_len, new_len);
         if (r != UPX_E_OK)
             throwInternalError("decompression failed");
@@ -244,49 +292,54 @@ bool Packer::compress(upx_bytep in, upx_bytep out,
             throwInternalError("decompression failed (size error)");
 
         // verify decompression
-        if (ph.u_adler != upx_adler32(in, ph.u_len, ph.saved_u_adler))
+        if (ph.u_adler != upx_adler32(i_ptr, ph.u_len, ph.saved_u_adler))
             throwInternalError("decompression failed (checksum error)");
     }
     return true;
-#endif /* UNUPX */
+}
+
+
+#if 0
+bool Packer::compress(upx_bytep in, upx_bytep out,
+                      const upx_compress_config_t *cconf)
+{
+    return ph_compress(ph, in, out, cconf);
+}
+#endif
+
+
+bool Packer::checkDefaultCompressionRatio(unsigned u_len, unsigned c_len) const
+{
+    assert((int)u_len > 0);
+    assert((int)c_len > 0);
+    if (c_len >= u_len)
+        return false;
+    unsigned gain = u_len - c_len;
+
+    if (gain < 512)             // need at least 512 bytes gain
+        return false;
+#if 1
+    if (gain >= 4096)           // ok if we have 4096 bytes gain
+        return true;
+    if (gain >= u_len / 16)     // ok if we have 6.25% gain
+        return true;
+    return false;
+#else
+    return true;
+#endif
 }
 
 
 bool Packer::checkCompressionRatio(unsigned u_len, unsigned c_len) const
 {
-    assert((int)u_len > 0);
-    assert((int)c_len > 0);
-
-#if 1
-    if (c_len + 512 >= u_len)           // min. 512 bytes gain
-        return false;
-    if (c_len >= u_len - u_len / 8)     // min. 12.5% gain
-        return false;
-#else
-    if (c_len >= u_len)
-        return false;
-#endif
-    return true;
+    return checkDefaultCompressionRatio(u_len, c_len);
 }
-
 
 bool Packer::checkFinalCompressionRatio(const OutputFile *fo) const
 {
     const unsigned u_len = file_size;
     const unsigned c_len = fo->getBytesWritten();
-
-    assert((int)u_len > 0);
-    assert((int)c_len > 0);
-
-    if (c_len + 4096 <= u_len)          // ok if we have 4096 bytes gain
-        return true;
-
-    if (c_len + 512 >= u_len)           // min. 512 bytes gain
-        return false;
-    if (c_len >= u_len - u_len / 8)     // min. 12.5% gain
-        return false;
-
-    return true;
+    return checkDefaultCompressionRatio(u_len, c_len);
 }
 
 
@@ -294,8 +347,8 @@ bool Packer::checkFinalCompressionRatio(const OutputFile *fo) const
 // decompress
 **************************************************************************/
 
-void Packer::decompress(const upx_bytep in, upx_bytep out,
-                        bool verify_checksum, Filter *ft)
+void ph_decompress(PackHeader &ph, const upx_bytep in, upx_bytep out,
+                   bool verify_checksum, Filter *ft)
 {
     unsigned adler;
 
@@ -309,16 +362,17 @@ void Packer::decompress(const upx_bytep in, upx_bytep out,
 
     // decompress
     unsigned new_len = ph.u_len;
-    int r = upx_decompress(in, ph.c_len, out, &new_len, ph.method);
+    int r = upx_decompress(in, ph.c_len, out, &new_len, ph.method, &ph.compress_result);
+    if (r == UPX_E_OUT_OF_MEMORY)
+        throwOutOfMemoryException();
     if (r != UPX_E_OK || new_len != ph.u_len)
         throwCompressedDataViolation();
 
     // verify checksum of decompressed data
     if (verify_checksum)
     {
-        if (ft) {
+        if (ft)
             ft->unfilter(out, ph.u_len);
-        }
         adler = upx_adler32(out, ph.u_len, ph.saved_u_adler);
         if (adler != ph.u_adler)
             throwChecksumError();
@@ -326,35 +380,53 @@ void Packer::decompress(const upx_bytep in, upx_bytep out,
 }
 
 
+void Packer::decompress(const upx_bytep in, upx_bytep out,
+                        bool verify_checksum, Filter *ft)
+{
+    ph_decompress(ph, in, out, verify_checksum, ft);
+}
+
+
 /*************************************************************************
 // overlapping decompression
 **************************************************************************/
 
-bool Packer::testOverlappingDecompression(const upx_bytep buf,
-                                          unsigned overlap_overhead) const
+bool ph_testOverlappingDecompression(const PackHeader &ph,
+                                     const upx_bytep buf,
+                                     const upx_bytep tbuf,
+                                     unsigned overlap_overhead)
 {
-#if defined(UNUPX)
-    UNUSED(buf);
-    UNUSED(overlap_overhead);
-    return false;
-#else
     if (ph.c_len >= ph.u_len)
         return false;
 
-    assert((int)overlap_overhead >= 0);
+    assert((int) overlap_overhead >= 0);
+    assert((int) (ph.u_len + overlap_overhead) >= 0);
+
     // Because upx_test_overlap() does not use the asm_fast decompressor
     // we must account for extra 3 bytes that asm_fast does use,
     // or else we may fail at runtime decompression.
-    if (overlap_overhead <= 4 + 3)  // don't waste time here
+    unsigned extra = 0;
+    if (M_IS_NRV2B(ph.method) || M_IS_NRV2D(ph.method) || M_IS_NRV2E(ph.method))
+        extra = 3;
+    if (overlap_overhead <= 4 + extra)  // don't waste time here
         return false;
-    overlap_overhead -= 3;
+    overlap_overhead -= extra;
 
     unsigned src_off = ph.u_len + overlap_overhead - ph.c_len;
     unsigned new_len = ph.u_len;
-    int r = upx_test_overlap(buf - src_off, src_off,
-                             ph.c_len, &new_len, ph.method);
+    int r = upx_test_overlap(buf - src_off, tbuf,
+                             src_off, ph.c_len, &new_len,
+                             ph.method, &ph.compress_result);
+    if (r == UPX_E_OUT_OF_MEMORY)
+        throwOutOfMemoryException();
     return (r == UPX_E_OK && new_len == ph.u_len);
-#endif /* UNUPX */
+}
+
+
+bool Packer::testOverlappingDecompression(const upx_bytep buf, const upx_bytep tbuf,
+                                          unsigned overlap_overhead) const
+{
+    return ph_testOverlappingDecompression(ph, buf, tbuf, overlap_overhead);
 }
 
 
@@ -362,7 +434,6 @@ void Packer::verifyOverlappingDecompression(Filter *ft)
 {
     assert(ph.c_len < ph.u_len);
     assert((int)ph.overlap_overhead > 0);
-#if 1 && !defined(UNUPX)
     // Idea:
     //   obuf[] was allocated with MemBuffer::allocForCompression(), and
     //   its contents are no longer needed, i.e. the compressed data
@@ -378,7 +449,7 @@ void Packer::verifyOverlappingDecompression(Filter *ft)
     // See also:
     //   Filter::verifyUnfilter()
 
-    if (ph.level == 1)
+    if (ph_skipVerify(ph))
         return;
     unsigned offset = (ph.u_len + ph.overlap_overhead) - ph.c_len;
     if (offset + ph.c_len > obuf.getSize())
@@ -386,7 +457,20 @@ void Packer::verifyOverlappingDecompression(Filter *ft)
     memmove(obuf + offset, obuf, ph.c_len);
     decompress(obuf + offset, obuf, true, ft);
     obuf.checkState();
-#endif /* !UNUPX */
+}
+
+
+void Packer::verifyOverlappingDecompression(upx_bytep o_ptr, unsigned o_size, Filter *ft)
+{
+    assert(ph.c_len < ph.u_len);
+    assert((int)ph.overlap_overhead > 0);
+    if (ph_skipVerify(ph))
+        return;
+    unsigned offset = (ph.u_len + ph.overlap_overhead) - ph.c_len;
+    if (offset + ph.c_len > o_size)
+        return;
+    memmove(o_ptr + offset, o_ptr, ph.c_len);
+    decompress(o_ptr + offset, o_ptr, true, ft);
 }
 
 
@@ -401,20 +485,17 @@ void Packer::verifyOverlappingDecompression(Filter *ft)
 **************************************************************************/
 
 unsigned Packer::findOverlapOverhead(const upx_bytep buf,
+                                     const upx_bytep tbuf,
                                      unsigned range,
                                      unsigned upper_limit) const
 {
-#if defined(UNUPX)
-    throwInternalError("not implemented");
-    return 0;
-#else
     assert((int) range >= 0);
 
     // prepare to deal with very pessimistic values
     unsigned low = 1;
-    unsigned high = UPX_MIN(ph.u_len / 4 + 512, upper_limit);
+    unsigned high = UPX_MIN(ph.u_len + 512, upper_limit);
     // but be optimistic for first try (speedup)
-    unsigned m = UPX_MIN(16, high);
+    unsigned m = UPX_MIN(16u, high);
     //
     unsigned overhead = 0;
     unsigned nr = 0;          // statistics
@@ -424,19 +505,23 @@ unsigned Packer::findOverlapOverhead(const upx_bytep buf,
         assert(m >= low); assert(m <= high);
         assert(m < overhead || overhead == 0);
         nr++;
-        if (testOverlappingDecompression(buf, m))
+        bool success = testOverlappingDecompression(buf, tbuf, m);
+        //printf("testOverlapOverhead(%d): %d %d: %d -> %d\n", nr, low, high, m, (int)success);
+        if (success)
         {
             overhead = m;
             // Succeed early if m lies in [low .. low+range-1], i.e. if
             // if the range of the current interval is <= range.
-            //if (m <= low + range - 1)
-            if (m + 1 <= low + range)   // avoid underflow
+            //   if (m <= low + range - 1)
+            //   if (m <  low + range)
+            if (m - low < range)                    // avoid underflow
                 break;
             high = m - 1;
         }
         else
             low = m + 1;
-        m = (low + high) / 2;
+        ////m = (low + high) / 2;
+        m = (low & high) + ((low ^ high) >> 1);     // avoid overflow
     }
 
     //printf("findOverlapOverhead: %d (%d tries)\n", overhead, nr);
@@ -445,7 +530,6 @@ unsigned Packer::findOverlapOverhead(const upx_bytep buf,
 
     UNUSED(nr);
     return overhead;
-#endif /* UNUPX */
 }
 
 
@@ -476,13 +560,13 @@ void Packer::handleStub(InputFile *fif, OutputFile *fo, long size)
 
 void Packer::checkOverlay(unsigned overlay)
 {
-    assert((int)overlay >= 0);
-    assert((off_t)overlay < file_size);
+    if ((int)overlay < 0 || (off_t)overlay > file_size)
+        throw OverlayException("invalid overlay size; file is possibly corrupt");
     if (overlay == 0)
         return;
     info("Found overlay: %d bytes", overlay);
     if (opt->overlay == opt->SKIP_OVERLAY)
-        throw OverlayException("file has overlay -- skipped; try `--overlay=copy'");
+        throw OverlayException("file has overlay -- skipped; try '--overlay=copy'");
 }
 
 
@@ -508,7 +592,7 @@ void Packer::copyOverlay(OutputFile *fo, unsigned overlay,
     // get buffer size, align to improve i/o speed
     unsigned buf_size = buf->getSize();
     if (buf_size > 65536)
-        buf_size = ALIGN_DOWN(buf_size, 4096);
+        buf_size = ALIGN_DOWN(buf_size, 4096u);
     assert((int)buf_size > 0);
 
     do {
@@ -524,6 +608,8 @@ void Packer::copyOverlay(OutputFile *fo, unsigned overlay,
 // Create a pseudo-unique program id.
 unsigned Packer::getRandomId() const
 {
+    if (opt->debug.disable_random_id)
+        return 0x01020304;
     unsigned id = 0;
 #if 0 && defined(__unix__)
     // Don't consume precious bytes from /dev/urandom.
@@ -539,7 +625,7 @@ unsigned Packer::getRandomId() const
 #endif
     while (id == 0)
     {
-#if !defined(HAVE_GETTIMEOFDAY) || defined(__DJGPP__)
+#if !(HAVE_GETTIMEOFDAY) || defined(__DJGPP__)
         id ^= (unsigned) time(NULL);
         id ^= ((unsigned) clock()) << 12;
 #else
@@ -548,7 +634,7 @@ unsigned Packer::getRandomId() const
         id ^= (unsigned) tv.tv_sec;
         id ^= ((unsigned) tv.tv_usec) << 12;  // shift into high-bits
 #endif
-#if defined(HAVE_GETPID)
+#if (HAVE_GETPID)
         id ^= (unsigned) getpid();
 #endif
         id ^= (unsigned) fi->st.st_ino;
@@ -569,7 +655,7 @@ void Packer::initPackHeader()
     memset(&ph, 0, sizeof(ph));
     ph.version = getVersion();
     ph.format = getFormat();
-    ph.method = -1;
+    ph.method = M_NONE;
     ph.level = -1;
     ph.u_adler = ph.c_adler = ph.saved_u_adler = ph.saved_c_adler = upx_adler32(NULL,0);
     ph.buf_offset = -1;
@@ -593,11 +679,15 @@ void Packer::updatePackHeader()
 }
 
 
+// FIXME: remove patchPackHeader() and fold into relocateLoader();
+//   then make linker->relocate() private (friend Packer)
 int Packer::patchPackHeader(void *b, int blen)
 {
-    const int size = ph.getPackHeaderSize();
     assert(isValidFilter(ph.filter));
 
+    const int size = ph.getPackHeaderSize();
+    if (linker->findSection("UPX1HEAD", false))
+        assert(size == linker->getSectionSize("UPX1HEAD"));
     int boff = find_le32(b, blen, UPX_MAGIC_LE32);
     checkPatch(b, blen, boff, size);
 
@@ -608,7 +698,7 @@ int Packer::patchPackHeader(void *b, int blen)
 }
 
 
-bool Packer::getPackHeader(void *b, int blen)
+bool Packer::getPackHeader(void *b, int blen, bool allow_incompressible)
 {
     if (!ph.fillPackHeader((unsigned char *)b, blen))
         return false;
@@ -621,7 +711,9 @@ bool Packer::getPackHeader(void *b, int blen)
         if (!testUnpackVersion(ph.version))
             return false;
 
-    if (ph.c_len >= ph.u_len || (off_t)ph.c_len >= file_size
+    if (ph.c_len > ph.u_len
+        || (ph.c_len == ph.u_len && !allow_incompressible)
+        || (off_t)ph.c_len >= file_size
         || ph.version <= 0 || ph.version >= 0xff)
         throwCantUnpack("header corrupted");
     else if ((off_t)ph.u_len > ph.u_file_size)
@@ -646,18 +738,18 @@ bool Packer::getPackHeader(void *b, int blen)
 }
 
 
-bool Packer::readPackHeader(int len)
+bool Packer::readPackHeader(int len, bool allow_incompressible)
 {
     assert((int)len > 0);
     MemBuffer buf(len);
     len = fi->read(buf, len);
     if (len <= 0)
         return false;
-    return getPackHeader(buf, len);
+    return getPackHeader(buf, len, allow_incompressible);
 }
 
 
-void Packer::checkAlreadyPacked(void *b, int blen)
+void Packer::checkAlreadyPacked(const void *b, int blen)
 {
     int boff = find_le32(b, blen, UPX_MAGIC_LE32);
     if (boff < 0)
@@ -670,7 +762,7 @@ void Packer::checkAlreadyPacked(void *b, int blen)
     //if (!tmp.fillPackHeader((unsigned char *)b + boff, blen - boff))
     //    return;
     //
-    // This also would require that the buffer in `b' holds
+    // This also would require that the buffer in 'b' holds
     // the full PackHeader, and not only the 4 magic bytes.
 
     throwAlreadyPacked();
@@ -808,38 +900,6 @@ int Packer::patch_le32(void *b, int blen, const void *old, unsigned new_)
 }
 
 
-// patch version into stub/ident_n.ash
-int Packer::patchVersion(void *b, int blen)
-{
-    int boff = find(b, blen, "$Id: UPX UPXV ", 14);
-    checkPatch(b, blen, boff, 14);
-
-    unsigned char *p = (unsigned char *)b + boff + 9;
-    if (opt->debug.fake_stub_version[0])
-        memcpy(p, opt->debug.fake_stub_version, 4);
-    else
-        memcpy(p, UPX_VERSION_STRING4, 4);
-
-    return boff;
-}
-
-
-// patch year into stub/ident_[ns].ash
-int Packer::patchVersionYear(void *b, int blen)
-{
-    int boff = find(b, blen, " 1996-UPXY ", 11);
-    checkPatch(b, blen, boff, 11);
-
-    unsigned char *p = (unsigned char *)b + boff + 6;
-    if (opt->debug.fake_stub_year[0])
-        memcpy(p, opt->debug.fake_stub_year, 4);
-    else
-        memcpy(p, UPX_VERSION_YEAR, 4);
-
-    return boff;
-}
-
-
 /*************************************************************************
 // relocation util
 **************************************************************************/
@@ -848,9 +908,9 @@ upx_byte *Packer::optimizeReloc32(upx_byte *in, unsigned relocnum,
                                   upx_byte *out, upx_byte *image,
                                   int bswap, int *big)
 {
-#if defined(UNUPX)
-    return out;
-#else
+    if (opt->exact)
+        throwCantPackExact();
+
     *big = 0;
     if (relocnum == 0)
         return out;
@@ -886,11 +946,10 @@ upx_byte *Packer::optimizeReloc32(upx_byte *in, unsigned relocnum,
         }
         pc += oc;
         if (bswap)
-            set_be32(image+pc,get_le32(image+pc));
+            acc_ua_swab32s(image + pc);
     }
     *fix++ = 0;
     return fix;
-#endif /* UNUPX */
 }
 
 
@@ -928,7 +987,7 @@ unsigned Packer::unoptimizeReloc32(upx_byte **in, upx_byte *image,
         }
         *relocs++ = jc;
         if (bswap && image)
-            set_be32(image+jc,get_le32(image+jc));
+            acc_ua_swab32s(image + jc);
     }
     //fprintf(stderr,"relocnum=%x\n",relocn);
     *in = p+1;
@@ -937,66 +996,10 @@ unsigned Packer::unoptimizeReloc32(upx_byte **in, upx_byte *image,
 
 
 /*************************************************************************
-// compression method util
+// loader util (interface to linker)
 **************************************************************************/
 
-bool Packer::isValidCompressionMethod(int method)
-{
-    return (method >= M_NRV2B_LE32 && method <= M_CL1B_LE16);
-}
-
-
-const int *Packer::getDefaultCompressionMethods_8(int method, int level, int small) const
-{
-    static const int m_nrv2b[] = { M_NRV2B_8, M_NRV2D_8, M_NRV2E_8, -1 };
-    static const int m_nrv2d[] = { M_NRV2D_8, M_NRV2B_8, M_NRV2E_8, -1 };
-    static const int m_nrv2e[] = { M_NRV2E_8, M_NRV2B_8, M_NRV2D_8, -1 };
-    static const int m_cl1b[]  = { M_CL1B_8, -1 };
-
-    if (small < 0)
-        small = file_size <= 512*1024;
-    if (M_IS_NRV2B(method))
-        return m_nrv2b;
-    if (M_IS_NRV2D(method))
-        return m_nrv2d;
-    if (M_IS_NRV2E(method))
-        return m_nrv2e;
-    if (M_IS_CL1B(method))
-        return m_cl1b;
-    if (level == 1 || small)
-        return m_nrv2b;
-    return m_nrv2e;
-}
-
-
-const int *Packer::getDefaultCompressionMethods_le32(int method, int level, int small) const
-{
-    static const int m_nrv2b[] = { M_NRV2B_LE32, M_NRV2D_LE32, M_NRV2E_LE32, -1 };
-    static const int m_nrv2d[] = { M_NRV2D_LE32, M_NRV2B_LE32, M_NRV2E_LE32, -1 };
-    static const int m_nrv2e[] = { M_NRV2E_LE32, M_NRV2B_LE32, M_NRV2D_LE32, -1 };
-    static const int m_cl1b[]  = { M_CL1B_LE32, -1 };
-
-    if (small < 0)
-        small = file_size <= 512*1024;
-    if (M_IS_NRV2B(method))
-        return m_nrv2b;
-    if (M_IS_NRV2D(method))
-        return m_nrv2d;
-    if (M_IS_NRV2E(method))
-        return m_nrv2e;
-    if (M_IS_CL1B(method))
-        return m_cl1b;
-    if (level == 1 || small)
-        return m_nrv2b;
-    return m_nrv2e;
-}
-
-
-/*************************************************************************
-// loader util
-**************************************************************************/
-
-char const *Packer::getIdentstr(unsigned *size, int small)
+static const char *getIdentstr(unsigned *size, int small)
 {
     static char identbig[] =
         "\n\0"
@@ -1055,45 +1058,74 @@ char const *Packer::getIdentstr(unsigned *size, int small)
     }
 }
 
-void Packer::createLinker(const void *pdata, int plen, int pinfo)
-{
-    if (getFormat() < 128)
-        linker = new Linker(pdata, plen, pinfo);    // little endian
-    else
-        linker = new BeLinker(pdata, plen, pinfo);  // big endian
-}
 
-void Packer::initLoader(const void *pdata, int plen, int pinfo, int small)
+void Packer::initLoader(const void *pdata, int plen, int small)
 {
-    if (pinfo < 0)
-    {
-        pinfo =  get_le16((const unsigned char *)pdata + plen - 2);
-        pinfo =  (pinfo + 3) &~ 3;
-    }
-
-    delete linker; linker = NULL;
-    createLinker(pdata, plen, pinfo);
+    delete linker;
+    linker = newLinker();
+    assert(bele == linker->bele);
+    linker->init(pdata, plen);
 
     unsigned size;
     char const * const ident = getIdentstr(&size, small);
-    linker->addSection("IDENTSTR", ident, size);
+    linker->addSection("IDENTSTR", ident, size, 0);
 }
 
 
-void __acc_cdecl_va Packer::addLoader(const char *s, ...)
+#define C const char *
+void Packer::addLoader(C a)
+{ addLoaderVA(a, NULL); }
+void Packer::addLoader(C a, C b)
+{ addLoaderVA(a, b, NULL); }
+void Packer::addLoader(C a, C b, C c)
+{ addLoaderVA(a, b, c, NULL); }
+void Packer::addLoader(C a, C b, C c, C d)
+{ addLoaderVA(a, b, c, d, NULL); }
+void Packer::addLoader(C a, C b, C c, C d, C e)
+{ addLoaderVA(a, b, c, d, e, NULL); }
+void Packer::addLoader(C a, C b, C c, C d, C e, C f)
+{ addLoaderVA(a, b, c, d, e, f, NULL); }
+void Packer::addLoader(C a, C b, C c, C d, C e, C f, C g)
+{ addLoaderVA(a, b, c, d, e, f, g, NULL); }
+void Packer::addLoader(C a, C b, C c, C d, C e, C f, C g, C h)
+{ addLoaderVA(a, b, c, d, e, f, g, h, NULL); }
+void Packer::addLoader(C a, C b, C c, C d, C e, C f, C g, C h, C i)
+{ addLoaderVA(a, b, c, d, e, f, g, h, i, NULL); }
+void Packer::addLoader(C a, C b, C c, C d, C e, C f, C g, C h, C i, C j)
+{ addLoaderVA(a, b, c, d, e, f, g, h, i, j, NULL); }
+#undef C
+
+void __acc_cdecl_va Packer::addLoaderVA(const char *s, ...)
 {
     va_list ap;
-
     va_start(ap, s);
-    while (s != NULL)
-    {
-        if (*s)
-            linker->addSection(s);
-        s = va_arg(ap, const char *);
-    }
+    linker->addLoader(s, ap);
     va_end(ap);
 }
 
+upx_byte *Packer::getLoader() const
+{
+    int size = -1;
+    upx_byte *oloader = linker->getLoader(&size);
+    if (oloader == NULL || size <= 0)
+        throwBadLoader();
+    return oloader;
+}
+
+int Packer::getLoaderSize() const
+{
+    int size = -1;
+    upx_byte *oloader = linker->getLoader(&size);
+    if (oloader == NULL || size <= 0)
+        throwBadLoader();
+    return size;
+}
+
+bool Packer::hasLoaderSection(const char *name) const
+{
+    void *section = linker->findSection(name, false);
+    return section != NULL;
+}
 
 int Packer::getLoaderSection(const char *name, int *slen) const
 {
@@ -1105,7 +1137,6 @@ int Packer::getLoaderSection(const char *name, int *slen) const
         *slen = size;
     return ostart;
 }
-
 
 // same, but the size of the section may be == 0
 int Packer::getLoaderSectionStart(const char *name, int *slen) const
@@ -1120,121 +1151,23 @@ int Packer::getLoaderSectionStart(const char *name, int *slen) const
 }
 
 
-const upx_byte *Packer::getLoader() const
+void Packer::relocateLoader()
 {
-    int size = -1;
-    const char *oloader = linker->getLoader(&size);
-    if (oloader == NULL || size <= 0)
-        throwBadLoader();
-    return (const upx_byte *) oloader;
-}
+    linker->relocate();
 
-
-int Packer::getLoaderSize() const
-{
-    int size = -1;
-    const char *oloader = linker->getLoader(&size);
-    if (oloader == NULL || size <= 0)
-        throwBadLoader();
-    return size;
-}
-
-
-const char *Packer::getDecompressor() const
-{
-    static const char nrv2b_le32_small[] =
-        "N2BSMA10,N2BDEC10,N2BSMA20,N2BDEC20,N2BSMA30,"
-        "N2BDEC30,N2BSMA40,N2BSMA50,N2BDEC50,N2BSMA60,"
-        "N2BDEC60";
-    static const char nrv2b_le32_fast[] =
-        "N2BFAS10,+80CXXXX,N2BFAS11,N2BDEC10,N2BFAS20,"
-        "N2BDEC20,N2BFAS30,N2BDEC30,N2BFAS40,N2BFAS50,"
-        "N2BDEC50,N2BFAS60,+40CXXXX,N2BFAS61,N2BDEC60";
-    static const char nrv2d_le32_small[] =
-        "N2DSMA10,N2DDEC10,N2DSMA20,N2DDEC20,N2DSMA30,"
-        "N2DDEC30,N2DSMA40,N2DSMA50,N2DDEC50,N2DSMA60,"
-        "N2DDEC60";
-    static const char nrv2d_le32_fast[] =
-        "N2DFAS10,+80CXXXX,N2DFAS11,N2DDEC10,N2DFAS20,"
-        "N2DDEC20,N2DFAS30,N2DDEC30,N2DFAS40,N2DFAS50,"
-        "N2DDEC50,N2DFAS60,+40CXXXX,N2DFAS61,N2DDEC60";
-    static const char nrv2e_le32_small[] =
-        "N2ESMA10,N2EDEC10,N2ESMA20,N2EDEC20,N2ESMA30,"
-        "N2EDEC30,N2ESMA40,N2ESMA50,N2EDEC50,N2ESMA60,"
-        "N2EDEC60";
-    static const char nrv2e_le32_fast[] =
-        "N2EFAS10,+80CXXXX,N2EFAS11,N2EDEC10,N2EFAS20,"
-        "N2EDEC20,N2EFAS30,N2EDEC30,N2EFAS40,N2EFAS50,"
-        "N2EDEC50,N2EFAS60,+40CXXXX,N2EFAS61,N2EDEC60";
-    static const char cl1b_le32_small[] =
-        "CL1ENTER,CL1SMA10,CL1RLOAD,"
-        "CL1WID01,CL1SMA1B,"
-        "CL1WID02,CL1SMA1B,"
-        "CL1WID03,CL1SMA1B,"
-        "CL1WID04,CL1SMA1B,"
-        "CL1WID05,CL1SMA1B,"
-        "CL1WID06,CL1SMA1B,"
-        "CL1WID07,CL1SMA1B,"
-        "CL1WID08,CL1SMA1B,"
-        "CL1WID09,CL1SMA1B,"
-        "CL1WID10,"
-        "CL1START,"
-        "CL1TOP00,CL1SMA1B,"
-        "CL1TOP01,CL1SMA1B,"
-        "CL1TOP02,CL1SMA1B,"
-        "CL1TOP03,CL1SMA1B,"
-        "CL1TOP04,CL1SMA1B,"
-        "CL1TOP05,CL1SMA1B,"
-        "CL1TOP06,CL1SMA1B,"
-        "CL1TOP07,CL1SMA1B,"
-        "CL1OFF01,CL1SMA1B,"
-        "CL1OFF02,CL1SMA1B,"
-        "CL1OFF03,CL1SMA1B,"
-        "CL1OFF04,"
-        "CL1LEN00,CL1SMA1B,"
-        "CL1LEN01,CL1SMA1B,"
-        "CL1LEN02,"
-        "CL1COPY0";
-    static const char cl1b_le32_fast[] =
-        "CL1ENTER,"          "CL1RLOAD,"
-        "CL1WID01,CL1FAS1B,"
-        "CL1WID02,CL1FAS1B,"
-        "CL1WID03,CL1FAS1B,"
-        "CL1WID04,CL1FAS1B,"
-        "CL1WID05,CL1FAS1B,"
-        "CL1WID06,CL1FAS1B,"
-        "CL1WID07,CL1FAS1B,"
-        "CL1WID08,CL1FAS1B,"
-        "CL1WID09,CL1FAS1B,"
-        "CL1WID10,"
-        "CL1START,"
-        "CL1TOP00,CL1FAS1B,"
-        "CL1TOP01,CL1FAS1B,"
-        "CL1TOP02,CL1FAS1B,"
-        "CL1TOP03,CL1FAS1B,"
-        "CL1TOP04,CL1FAS1B,"
-        "CL1TOP05,CL1FAS1B,"
-        "CL1TOP06,CL1FAS1B,"
-        "CL1TOP07,CL1FAS1B,"
-        "CL1OFF01,CL1FAS1B,"
-        "CL1OFF02,CL1FAS1B,"
-        "CL1OFF03,CL1FAS1B,"
-        "CL1OFF04,"
-        "CL1LEN00,CL1FAS1B,"
-        "CL1LEN01,CL1FAS1B,"
-        "CL1LEN02,"
-        "CL1COPY0";
-
-    if (ph.method == M_NRV2B_LE32)
-        return opt->small ? nrv2b_le32_small : nrv2b_le32_fast;
-    if (ph.method == M_NRV2D_LE32)
-        return opt->small ? nrv2d_le32_small : nrv2d_le32_fast;
-    if (ph.method == M_NRV2E_LE32)
-        return opt->small ? nrv2e_le32_small : nrv2e_le32_fast;
-    if (ph.method == M_CL1B_LE32)
-        return opt->small ? cl1b_le32_small  : cl1b_le32_fast;
-    throwInternalError("bad decompressor");
-    return NULL;
+#if 0
+    // "relocate" packheader
+    if (linker->findSection("UPX1HEAD", false))
+    {
+        int lsize = -1;
+        int loff = getLoaderSectionStart("UPX1HEAD", &lsize);
+        assert(lsize == ph.getPackHeaderSize());
+        unsigned char *p = getLoader() + loff;
+        assert(get_le32(p) == UPX_MAGIC_LE32);
+        //patchPackHeader(p, lsize);
+        ph.putPackHeader(p);
+    }
+#endif
 }
 
 
@@ -1252,10 +1185,10 @@ const char *Packer::getDecompressor() const
 //
 // - updates this->ph
 // - updates *ft
-// - ibuf[] is restored to the original unfiltered version
-// - obuf[] contains the best compressed version
+// - i_ptr[] is restored to the original unfiltered version
+// - o_ptr[] contains the best compressed version
 //
-// strategy:
+// filter_strategy:
 //   n:  try the first N filters, use best one
 //  -1:  try all filters, use first working one
 //  -2:  try only the opt->filter filter
@@ -1266,7 +1199,7 @@ const char *Packer::getDecompressor() const
 // executable formats.
 //
 // It will replace the tryFilters() / compress() call sequence.
-
+//
 // 2006-02-15: hdr_buf and hdr_u_len are default empty input "header" array
 // to fix a 2-pass problem with Elf headers.  As of today there can be
 // only one decompression method per executable output file, and that method
@@ -1278,33 +1211,116 @@ const char *Packer::getDecompressor() const
 // The workaround is for hdr_buf and hdr_u_len to describe the Elf headers
 // (typically less than 512 bytes) when .text is passed in, and include
 // them in the calculation of shortest output.  Then the result
-// this->ph.method  will say which [single] method to use for everthing.
+// this->ph.method  will say which [single] method to use for everything.
 // The Elf headers are never filtered.  They are short enough (< 512 bytes)
 // that compressing them more than once per method (once here when choosing,
 // once again just before writing [because compressWithFilters discards])
 // is OK because of the simplicity of not having two output arrays.
 **************************************************************************/
 
-void Packer::compressWithFilters(Filter *parm_ft,
-                                 const unsigned overlap_range,
-                                 int strategy, const int *parm_filters,
-                                 unsigned max_offset, unsigned max_match,
-                                 unsigned filter_off, unsigned compress_buf_off,
-                                 unsigned char *hdr_buf,
-                                 unsigned hdr_u_len)
+static int prepareMethods(int *methods, int ph_method, const int *all_methods)
 {
-    const int *f;
-    //
+    int nmethods = 0;
+    if (!opt->all_methods || all_methods == NULL)
+    {
+        methods[nmethods++] = ph_method;
+        return nmethods;
+    }
+    for (int mm = 0; all_methods[mm] != M_END; ++mm)
+    {
+        int method = all_methods[mm];
+        if (method == M_ULTRA_BRUTE && !opt->ultra_brute)
+            break;
+        if (method == M_SKIP || method == M_ULTRA_BRUTE)
+            continue;
+        if (opt->all_methods && !opt->all_methods_use_lzma && M_IS_LZMA(method))
+            continue;
+        // use this method
+        assert(Packer::isValidCompressionMethod(method));
+        methods[nmethods++] = method;
+    }
+    return nmethods;
+}
+
+
+static int prepareFilters(int *filters, int &filter_strategy,
+                          const int *all_filters)
+{
+    int nfilters = 0;
+
+    // setup filter filter_strategy
+    if (filter_strategy == 0)
+    {
+        if (opt->all_filters)
+            // choose best from all available filters
+            filter_strategy = INT_MAX;
+        else if (opt->filter >= 0 && Filter::isValidFilter(opt->filter, all_filters))
+            // try opt->filter
+            filter_strategy = -2;
+        else
+            // try the first working filter
+            filter_strategy = -1;
+    }
+    assert(filter_strategy != 0);
+
+    if (filter_strategy == -3)
+        goto done;
+    if (filter_strategy == -2)
+    {
+        if (opt->filter >= 0 && Filter::isValidFilter(opt->filter, all_filters))
+        {
+            filters[nfilters++] = opt->filter;
+            goto done;
+        }
+        filter_strategy = -1;
+    }
+    assert(filter_strategy >= -1);
+
+    while (all_filters && *all_filters != FT_END)
+    {
+        int filter_id = *all_filters++;
+        if (filter_id == FT_ULTRA_BRUTE && !opt->ultra_brute)
+            break;
+        if (filter_id == FT_SKIP || filter_id == FT_ULTRA_BRUTE)
+            continue;
+        if (filter_id == 0)
+            continue;
+        // use this filter
+        assert(Filter::isValidFilter(filter_id));
+        filters[nfilters++] = filter_id;
+        if (filter_strategy >= 0 && nfilters >= filter_strategy)
+            break;
+    }
+
+done:
+    // filter_strategy now only means "stop after first successful filter"
+    filter_strategy = (filter_strategy < 0) ? -1 : 0;
+    // make sure that we have a "no filter" fallback
+    for (int i = 0; i < nfilters; i++)
+        if (filters[i] == 0)
+            return nfilters;
+    filters[nfilters++] = 0;
+    return nfilters;
+}
+
+
+void Packer::compressWithFilters(upx_bytep i_ptr, unsigned i_len,
+                                 upx_bytep o_ptr,
+                                 upx_bytep f_ptr, unsigned f_len,
+                                 const upx_bytep hdr_ptr, unsigned hdr_len,
+                                 Filter *parm_ft,
+                                 const unsigned overlap_range,
+                                 const upx_compress_config_t *cconf,
+                                 int filter_strategy)
+{
+    parm_ft->buf_len = f_len;
+    // struct copies
     const PackHeader orig_ph = this->ph;
           PackHeader best_ph = this->ph;
-    //
     const Filter orig_ft = *parm_ft;
           Filter best_ft = *parm_ft;
     //
-    const unsigned compress_buf_len = orig_ph.u_len;
-    const unsigned filter_len = orig_ft.buf_len ? orig_ft.buf_len : compress_buf_len;
-    //
-    best_ph.c_len = orig_ph.u_len;
+    best_ph.c_len = i_len;
     best_ph.overlap_overhead = 0;
     unsigned best_ph_lsize = 0;
     unsigned best_hdr_c_len = 0;
@@ -1312,128 +1328,70 @@ void Packer::compressWithFilters(Filter *parm_ft,
     // preconditions
     assert(orig_ph.filter == 0);
     assert(orig_ft.id == 0);
-    assert(filter_off + filter_len <= compress_buf_off + compress_buf_len);
 
-    // setup filter strategy
-    if (strategy == 0)
-    {
-        if (opt->all_filters)
-            // choose best from all available filters
-            strategy = INT_MAX;
-        else if (opt->filter >= 0 && isValidFilter(opt->filter))
-            // try opt->filter
-            strategy = -2;
-        else
-            // try the first working filter
-            strategy = -1;
-    }
-    assert(strategy != 0);
+    // prepare methods and filters
+    int methods[256];
+    int nmethods = prepareMethods(methods, ph.method, getCompressionMethods(M_ALL, ph.level));
+    assert(nmethods > 0); assert(nmethods < 256);
+    int filters[256];
+    int nfilters = prepareFilters(filters, filter_strategy, getFilters());
+    assert(nfilters > 0); assert(nfilters < 256);
+#if 0
+    printf("compressWithFilters: m(%d):", nmethods);
+    for (int i = 0; i < nmethods; i++) printf(" %d", methods[i]);
+    printf(" f(%d):", nfilters);
+    for (int i = 0; i < nfilters; i++) printf(" %d", filters[i]);
+    printf("\n");
+#endif
 
-    // setup raw_filters
-    int tmp_filters[] = { 0, -1 };
-    const int *raw_filters = NULL;
-    if (strategy == -3)
-        raw_filters = tmp_filters;
-    else if (strategy == -2 && opt->filter >= 0)
-    {
-        tmp_filters[0] = opt->filter;
-        raw_filters = tmp_filters;
-    }
+    // update total_passes; previous (ui_total_passes > 0) means incremental
+    if (uip->ui_total_passes > 0)
+        uip->ui_total_passes -= 1;
+    if (filter_strategy < 0)
+        uip->ui_total_passes += nmethods;
     else
+        uip->ui_total_passes += nfilters * nmethods;
+
+    // Working buffer for compressed data. Don't waste memory and allocate as needed.
+    upx_bytep o_tmp = o_ptr;
+    MemBuffer o_tmp_buf;
+
+    // compress using all methods/filters
+    int nfilters_success_total = 0;
+    for (int mm = 0; mm < nmethods; mm++) // for all methods
     {
-        raw_filters = parm_filters;
-        if (raw_filters == NULL)
-            raw_filters = getFilters();
-        if (raw_filters == NULL)
-            raw_filters = tmp_filters;
-    }
-
-    // first pass - count number of filters
-    int raw_nfilters = 0;
-    for (f = raw_filters; *f >= 0; f++)
-    {
-        assert(isValidFilter(*f));
-        raw_nfilters++;
-    }
-
-    // copy filters, add a 0
-    int nfilters = 0;
-    bool zero_seen = false;
-    Array(int, filters, raw_nfilters + 2);
-    for (f = raw_filters; *f >= 0; f++)
-    {
-        if (*f == 0)
-            zero_seen = true;
-        filters[nfilters++] = *f;
-        if (nfilters == strategy)
-            break;
-    }
-    if (!zero_seen)
-        filters[nfilters++] = 0;
-    filters[nfilters] = -1;
-
-    // methods
-    int tmp_methods[] = { ph.method, -1 };
-    const int *methods = NULL;
-    if (opt->all_methods)
-        methods = getCompressionMethods(-1, ph.level);
-    if (methods == NULL)
-        methods = tmp_methods;
-    int nmethods = 0;
-    while (methods[nmethods] >= 0)
-    {
-        assert(isValidCompressionMethod(methods[nmethods]));
-        nmethods++;
-    }
-    assert(nmethods > 0);
-
-    // update total_passes; previous (0 < ui_total_passes) means incremental
-    if (strategy < 0)
-        ui_total_passes += 1 * nmethods - (0 < ui_total_passes);
-    else
-        ui_total_passes += nfilters * nmethods - (0 < ui_total_passes);
-
-    // Working buffer for compressed data. Don't waste memory.
-    MemBuffer *otemp = &obuf;
-    MemBuffer otemp_buf;
-
-    // compress
-    int nfilters_success = 0;
-    for (int m = 0; m < nmethods; m++)          // for all methods
-    {
+        assert(isValidCompressionMethod(methods[mm]));
         unsigned hdr_c_len = 0;
-        if (hdr_buf && hdr_u_len)
+        if (hdr_ptr != NULL && hdr_len)
         {
-            unsigned result[16];
-            upx_compress_config_t conf;
-            memset(&conf, 0xff, sizeof(conf));
-            if (0 < m && otemp == &obuf) { // do not overwrite obuf
-                otemp_buf.allocForCompression(compress_buf_len);
-                otemp = &otemp_buf;
+            if (nfilters_success_total != 0 && o_tmp == o_ptr)
+            {
+                // do not overwrite o_ptr
+                o_tmp_buf.allocForCompression(UPX_MAX(hdr_len, i_len));
+                o_tmp = o_tmp_buf;
             }
-            int r = upx_compress(hdr_buf, hdr_u_len, *otemp, &hdr_c_len,
-                0, methods[m], 10, &conf, result);
+            int r = upx_compress(hdr_ptr, hdr_len, o_tmp, &hdr_c_len,
+                                 NULL, methods[mm], 10, NULL, NULL);
             if (r != UPX_E_OK)
                 throwInternalError("header compression failed");
-            if (hdr_c_len >= hdr_u_len)
+            if (hdr_c_len >= hdr_len)
                 throwInternalError("header compression size increase");
         }
-        for (int i = 0; i < nfilters; i++)          // for all filters
+        int nfilters_success_mm = 0;
+        for (int ff = 0; ff < nfilters; ff++) // for all filters
         {
-            ibuf.checkState();
-            obuf.checkState();
+            assert(isValidFilter(filters[ff]));
             // get fresh packheader
             ph = orig_ph;
-            ph.method = methods[m];
-            ph.filter = filters[i];
+            ph.method = methods[mm];
+            ph.filter = filters[ff];
             ph.overlap_overhead = 0;
             // get fresh filter
             Filter ft = orig_ft;
             ft.init(ph.filter, orig_ft.addvalue);
             // filter
-            optimizeFilter(&ft, ibuf + filter_off, filter_len);
-
-            bool success = ft.filter(ibuf + filter_off, filter_len);
+            optimizeFilter(&ft, f_ptr, f_len);
+            bool success = ft.filter(f_ptr, f_len);
             if (ft.id != 0 && ft.calls == 0)
             {
                 // filter did not do anything - no need to call ft.unfilter()
@@ -1442,11 +1400,11 @@ void Packer::compressWithFilters(Filter *parm_ft,
             if (!success)
             {
                 // filter failed or was useless
-                if (strategy > 0)
+                if (filter_strategy >= 0)
                 {
-                    // adjust passes
-                    if (ui_pass >= 0)
-                        ui_pass++;
+                    // adjust ui passes
+                    if (uip->ui_pass >= 0)
+                        uip->ui_pass++;
                 }
                 continue;
             }
@@ -1455,23 +1413,26 @@ void Packer::compressWithFilters(Filter *parm_ft,
             printf("filter: id 0x%02x size %6d, calls %5d/%5d/%3d/%5d/%5d, cto 0x%02x\n",
                    ft.id, ft.buf_len, ft.calls, ft.noncalls, ft.wrongcalls, ft.firstcall, ft.lastcall, ft.cto);
 #endif
-            if (nfilters_success > 0 && otemp == &obuf)
+            if (nfilters_success_total != 0 && o_tmp == o_ptr)
             {
-                otemp_buf.allocForCompression(compress_buf_len);
-                otemp = &otemp_buf;
+                o_tmp_buf.allocForCompression(i_len);
+                o_tmp = o_tmp_buf;
             }
-            nfilters_success++;
+            nfilters_success_total++;
+            nfilters_success_mm++;
             ph.filter_cto = ft.cto;
             ph.n_mru = ft.n_mru;
             // compress
-            if (compress(ibuf + compress_buf_off, *otemp, max_offset, max_match))
+            if (compress(i_ptr, i_len, o_tmp, cconf))
             {
                 unsigned lsize = 0;
+                // findOverlapOperhead() might be slow; omit if already too big.
                 if (ph.c_len + lsize + hdr_c_len <= best_ph.c_len + best_ph_lsize + best_hdr_c_len)
                 {
                     // get results
-                    ph.overlap_overhead = findOverlapOverhead(*otemp, overlap_range);
-                    lsize = buildLoader(&ft);
+                    ph.overlap_overhead = findOverlapOverhead(o_tmp, i_ptr, overlap_range);
+                    buildLoader(&ft);
+                    lsize = getLoaderSize();
                     assert(lsize > 0);
                 }
 #if 0
@@ -1497,9 +1458,9 @@ void Packer::compressWithFilters(Filter *parm_ft,
                 if (update)
                 {
                     assert((int)ph.overlap_overhead > 0);
-                    // update obuf[] with best version
-                    if (otemp != &obuf)
-                        memcpy(obuf, *otemp, ph.c_len);
+                    // update o_ptr[] with best version
+                    if (o_tmp != o_ptr)
+                        memcpy(o_ptr, o_tmp, ph.c_len);
                     // save compression results
                     best_ph = ph;
                     best_ph_lsize = lsize;
@@ -1507,20 +1468,16 @@ void Packer::compressWithFilters(Filter *parm_ft,
                     best_ft = ft;
                 }
             }
-            // restore ibuf[] - unfilter with verify
-            ft.unfilter(ibuf + filter_off, filter_len, true);
-            //
-            ibuf.checkState();
-            obuf.checkState();
-            otemp->checkState();
-            //
-            if (strategy < 0)
+            // restore - unfilter with verify
+            ft.unfilter(f_ptr, f_len, true);
+            if (filter_strategy < 0)
                 break;
         }
+        assert(nfilters_success_mm > 0);
     }
 
     // postconditions 1)
-    assert(nfilters_success > 0);
+    assert(nfilters_success_total > 0);
     assert(best_ph.u_len == orig_ph.u_len);
     assert(best_ph.filter == best_ft.id);
     assert(best_ph.filter_cto == best_ft.cto);
@@ -1541,6 +1498,49 @@ void Packer::compressWithFilters(Filter *parm_ft,
 
     // convenience
     buildLoader(&best_ft);
+}
+
+
+/*************************************************************************
+//
+**************************************************************************/
+
+void Packer::compressWithFilters(Filter *ft,
+                                 const unsigned overlap_range,
+                                 const upx_compress_config_t *cconf,
+                                 int filter_strategy)
+{
+    compressWithFilters(ft, overlap_range, cconf, filter_strategy,
+                        0, 0, 0, NULL, 0);
+}
+
+
+void Packer::compressWithFilters(Filter *ft,
+                                 const unsigned overlap_range,
+                                 const upx_compress_config_t *cconf,
+                                 int filter_strategy,
+                                 unsigned filter_off,
+                                 unsigned ibuf_off,
+                                 unsigned obuf_off,
+                                 const upx_bytep hdr_ptr, unsigned hdr_len)
+{
+    ibuf.checkState(); obuf.checkState();
+
+    upx_bytep i_ptr = ibuf + ibuf_off;
+    unsigned  i_len = ph.u_len;
+    upx_bytep o_ptr = obuf + obuf_off;
+    upx_bytep f_ptr = ibuf + filter_off;
+    unsigned  f_len = ft->buf_len ? ft->buf_len : i_len;
+
+    assert(f_ptr + f_len <= i_ptr + i_len);
+
+    compressWithFilters(i_ptr, i_len,
+                        o_ptr,
+                        f_ptr, f_len,
+                        hdr_ptr, hdr_len,
+                        ft, overlap_range, cconf, filter_strategy);
+
+    ibuf.checkState(); obuf.checkState();
 }
 
 

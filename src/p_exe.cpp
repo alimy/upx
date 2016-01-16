@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -31,9 +31,10 @@
 #include "filter.h"
 #include "packer.h"
 #include "p_exe.h"
+#include "linker.h"
 
 static const
-#include "stub/l_exe.h"
+#include "stub/i086-dos16.exe.h"
 
 #define RSFCRI          4096    // Reserved Space For Compressed Relocation Info
 #define MAXMATCH        0x2000
@@ -49,14 +50,22 @@ static const
 PackExe::PackExe(InputFile *f) :
     super(f)
 {
-    COMPILE_TIME_ASSERT(sizeof(exe_header_t) == 32);
+    bele = &N_BELE_RTP::le_policy;
+    COMPILE_TIME_ASSERT(sizeof(exe_header_t) == 32)
+    COMPILE_TIME_ASSERT_ALIGNED1(exe_header_t)
     ih_exesize = ih_imagesize = ih_overlay = 0;
+    stack_for_lzma = 0;
+    use_clear_dirty_stack = false;
 }
 
 
 const int *PackExe::getCompressionMethods(int method, int level) const
 {
     bool small = ih_imagesize <= 256*1024;
+    // disable lzma for "--brute" unless explicitly given "--lzma"
+    // WARNING: this side effect persists for later files!
+    if (opt->all_methods_use_lzma && !opt->method_lzma_seen)
+        opt->all_methods_use_lzma = false;
     return Packer::getDefaultCompressionMethods_8(method, level, small);
 }
 
@@ -72,7 +81,7 @@ int PackExe::fillExeHeader(struct exe_header_t *eh) const
 #define oh  (*eh)
     // fill new exe header
     int flag = 0;
-    if (!opt->dos_exe.no_reloc)
+    if (!opt->dos_exe.no_reloc && !M_IS_LZMA(ph.method))
         flag |= USEJUMP;
     if (ih.relocs == 0)
         flag |= NORELOC;
@@ -81,7 +90,16 @@ int PackExe::fillExeHeader(struct exe_header_t *eh) const
     oh.ident = 'M' + 'Z' * 256;
     oh.headsize16 = 2;
 
-    oh.sp = ih.sp > 0x200 ? (unsigned) ih.sp : 0x200;
+    unsigned minsp = 0x200;
+    if (M_IS_LZMA(ph.method))
+        minsp = stack_for_lzma;
+    minsp = ALIGN_UP(minsp, 16u);
+    assert(minsp < 0xff00);
+    if (oh.sp > minsp)
+        minsp = oh.sp;
+    if (minsp < 0xff00 - 2)
+        minsp = ALIGN_UP(minsp, 2u);
+    oh.sp = minsp;
 
     unsigned destpara = (ph.u_len + ph.overlap_overhead - ph.c_len + 31) / 16;
     oh.ss = ph.c_len/16 + destpara;
@@ -93,67 +111,14 @@ int PackExe::fillExeHeader(struct exe_header_t *eh) const
 
     if (oh.ss != ih.ss)
         flag |= SS;
-    if (oh.sp != ih.sp)
+    if (oh.sp != ih.sp || M_IS_LZMA(ph.method))
         flag |= SP;
     return flag;
 #undef oh
 }
 
-
-int PackExe::buildLoader(const Filter *)
+void PackExe::addLoaderEpilogue(int flag)
 {
-    struct exe_header_t tmp_oh;
-    int flag = fillExeHeader(&tmp_oh);
-
-    // prepare loader
-    initLoader(nrv_loader,sizeof(nrv_loader));
-    if (device_driver)
-        addLoader("DEVICEENTRY", NULL);
-    addLoader("EXEENTRY",
-              device_driver ? "DEVICESUB" : "EXESUB",
-              "JNCDOCOPY",
-              relocsize ? "EXERELPU" : "",
-              "EXEMAIN4,+G5DXXXX,UPX1HEAD,EXECUTPO",
-              NULL
-             );
-    if (ph.method == M_NRV2B_8)
-        addLoader("NRV2B16S",               // decompressor
-                  ph.u_len > DI_LIMIT ? "N2B64K01" : "",
-                  "NRV2BEX1",
-                  opt->cpu == opt->CPU_8086 ? "N2BX8601" : "N2B28601",
-                  "NRV2BEX2",
-                  opt->cpu == opt->CPU_8086 ? "N2BX8602" : "N2B28602",
-                  "NRV2BEX3",
-                  ph.c_len > 0xffff ? "N2B64K02" : "",
-                  "NRV2BEX9,NRV2B16E",
-                  NULL
-                 );
-    else if (ph.method == M_NRV2D_8)
-        addLoader("NRV2D16S",
-                  ph.u_len > DI_LIMIT ? "N2D64K01" : "",
-                  "NRV2DEX1",
-                  opt->cpu == opt->CPU_8086 ? "N2DX8601" : "N2D28601",
-                  "NRV2DEX2",
-                  opt->cpu == opt->CPU_8086 ? "N2DX8602" : "N2D28602",
-                  "NRV2DEX3",
-                  ph.c_len > 0xffff ? "N2D64K02" : "",
-                  "NRV2DEX9,NRV2D16E",
-                  NULL
-                 );
-    else if (ph.method == M_NRV2E_8)
-        addLoader("NRV2E16S",
-                  ph.u_len > DI_LIMIT ? "N2E64K01" : "",
-                  "NRV2EEX1",
-                  opt->cpu == opt->CPU_8086 ? "N2EX8601" : "N2E28601",
-                  "NRV2EEX2",
-                  opt->cpu == opt->CPU_8086 ? "N2EX8602" : "N2E28602",
-                  "NRV2EEX3",
-                  ph.c_len > 0xffff ? "N2E64K02" : "",
-                  "NRV2EEX9,NRV2E16E",
-                  NULL
-                 );
-    else
-        throwInternalError("unknown compression method");
     addLoader("EXEMAIN5", NULL);
     if (relocsize)
         addLoader(ph.u_len <= DI_LIMIT || (ph.u_len & 0x7fff) >= relocsize ? "EXENOADJ" : "EXEADJUS",
@@ -176,7 +141,132 @@ int PackExe::buildLoader(const Filter *)
                   "EXERETIP",
                   NULL
                  );
-    return getLoaderSize();
+
+    linker->defineSymbol("original_cs", ih.cs);
+    linker->defineSymbol("original_ip", ih.ip);
+    linker->defineSymbol("original_sp", ih.sp);
+    linker->defineSymbol("original_ss", ih.ss);
+    linker->defineSymbol("reloc_size",
+                         (ph.u_len <= DI_LIMIT || (ph.u_len & 0x7fff)
+                          >= relocsize ? 0 : MAXRELOCS) - relocsize);
+}
+
+void PackExe::buildLoader(const Filter *)
+{
+    // get flag
+    exe_header_t dummy_oh;
+    int flag = fillExeHeader(&dummy_oh);
+
+    initLoader(stub_i086_dos16_exe, sizeof(stub_i086_dos16_exe));
+
+    if (M_IS_LZMA(ph.method))
+    {
+        addLoader("LZMA_DEC00",
+                  opt->small ? "LZMA_DEC10" : "LZMA_DEC20",
+                  "LZMA_DEC30",
+                  use_clear_dirty_stack ? "LZMA_DEC31" : "",
+                  "LZMA_DEC32",
+                  ph.u_len > 0xffff ? "LZMA_DEC33" : "",
+                  NULL
+                 );
+
+        addLoaderEpilogue(flag);
+        defineDecompressorSymbols();
+        const unsigned lsize0 = getLoaderSize();
+
+        // Lzma decompression code starts at ss:0x10, and its size is
+        // lsize bytes. It also needs getDecompressorWrkmemSize() bytes
+        // during uncompression. It also uses some stack, so 0x100
+        // more bytes are allocated
+        stack_for_lzma = 0x10 + lsize0 + getDecompressorWrkmemSize() + 0x100;
+        stack_for_lzma = ALIGN_UP(stack_for_lzma, 16u);
+
+        unsigned clear_dirty_stack_low = 0x10 + lsize0;
+        clear_dirty_stack_low = ALIGN_UP(clear_dirty_stack_low, 2u);
+        if (use_clear_dirty_stack)
+            linker->defineSymbol("clear_dirty_stack_low", clear_dirty_stack_low);
+
+        relocateLoader();
+        const unsigned lsize = getLoaderSize();
+        assert(lsize0 == lsize);
+        MemBuffer loader(lsize);
+        memcpy(loader, getLoader(), lsize);
+
+        MemBuffer compressed_lzma;
+        compressed_lzma.allocForCompression(lsize);
+        unsigned c_len_lzma = MemBuffer::getSizeForCompression(lsize);
+        int r = upx_compress(loader, lsize, compressed_lzma, &c_len_lzma,
+                             NULL, M_NRV2B_LE16, 9, NULL, NULL);
+        assert(r == UPX_E_OK); assert(c_len_lzma < lsize);
+
+        info("lzma+relocator code compressed: %u -> %u", lsize, c_len_lzma);
+        // reinit the loader
+        initLoader(stub_i086_dos16_exe, sizeof(stub_i086_dos16_exe));
+        // prepare loader
+        if (device_driver)
+            addLoader("DEVICEENTRY,LZMADEVICE,DEVICEENTRY2", NULL);
+
+        linker->addSection("COMPRESSED_LZMA", compressed_lzma, c_len_lzma, 0);
+        addLoader("LZMAENTRY,NRV2B160,NRVDDONE,NRVDECO1,NRVGTD00,NRVDECO2",
+                  NULL);
+
+    }
+    else if (device_driver)
+        addLoader("DEVICEENTRY,DEVICEENTRY2", NULL);
+
+    addLoader("EXEENTRY",
+              M_IS_LZMA(ph.method) && device_driver ? "LONGSUB" : "SHORTSUB",
+              "JNCDOCOPY",
+              relocsize ? "EXERELPU" : "",
+              "EXEMAIN4",
+              M_IS_LZMA(ph.method) ? "" : "EXEMAIN4B",
+              "EXEMAIN4C",
+              M_IS_LZMA(ph.method) ? "COMPRESSED_LZMA_START,COMPRESSED_LZMA" : "",
+              "+G5DXXXX,UPX1HEAD,EXECUTPO",
+              NULL
+             );
+    if (ph.method == M_NRV2B_8)
+        addLoader("NRV2B16S",               // decompressor
+                  ph.u_len > DI_LIMIT ? "N2B64K01" : "",
+                  "NRV2BEX1",
+                  opt->cpu == opt->CPU_8086 ? "N2BX8601" : "N2B28601",
+                  "NRV2BEX2",
+                  opt->cpu == opt->CPU_8086 ? "N2BX8602" : "N2B28602",
+                  "NRV2BEX3",
+                  ph.c_len > 0xffff ? "N2B64K02" : "",
+                  "NRV2BEX9",
+                  NULL
+                 );
+    else if (ph.method == M_NRV2D_8)
+        addLoader("NRV2D16S",
+                  ph.u_len > DI_LIMIT ? "N2D64K01" : "",
+                  "NRV2DEX1",
+                  opt->cpu == opt->CPU_8086 ? "N2DX8601" : "N2D28601",
+                  "NRV2DEX2",
+                  opt->cpu == opt->CPU_8086 ? "N2DX8602" : "N2D28602",
+                  "NRV2DEX3",
+                  ph.c_len > 0xffff ? "N2D64K02" : "",
+                  "NRV2DEX9",
+                  NULL
+                 );
+    else if (ph.method == M_NRV2E_8)
+        addLoader("NRV2E16S",
+                  ph.u_len > DI_LIMIT ? "N2E64K01" : "",
+                  "NRV2EEX1",
+                  opt->cpu == opt->CPU_8086 ? "N2EX8601" : "N2E28601",
+                  "NRV2EEX2",
+                  opt->cpu == opt->CPU_8086 ? "N2EX8602" : "N2E28602",
+                  "NRV2EEX3",
+                  ph.c_len > 0xffff ? "N2E64K02" : "",
+                  "NRV2EEX9",
+                  NULL
+                 );
+    else if M_IS_LZMA(ph.method)
+        return;
+    else
+        throwInternalError("unknown compression method");
+
+    addLoaderEpilogue(flag);
 }
 
 
@@ -235,6 +325,9 @@ unsigned optimize_relocs(upx_byte *b, const unsigned size,
                          const upx_byte *relocs, const unsigned nrelocs,
                          upx_byte *crel, bool *has_9a)
 {
+    if (opt->exact)
+        throwCantPackExact();
+
     upx_byte * const crel_save = crel;
     unsigned i;
     unsigned seg_high = 0;
@@ -309,7 +402,7 @@ unsigned optimize_relocs(upx_byte *b, const unsigned size,
                 break;
             }
             unsigned offs = addr - es*16;
-            if (offs >= 3 && b[es*16 + offs-3] == 0x9a)
+            if (offs >= 3 && b[es*16 + offs-3] == 0x9a && offs > di + 3)
             {
                 for (t = di; t < offs-3; t++)
                     if (b[es*16+t] == 0x9a && get_le16(b+es*16+t+3) <= seg_high)
@@ -386,7 +479,7 @@ void PackExe::pack(OutputFile *fo)
         for (ic = 0; ic < ih.relocs; ic++)
         {
             unsigned jc = get_le32(wr+4*ic);
-            set_le32(wr+4*ic, (jc>>16)*16+(jc&0xffff));
+            set_le32(wr+4*ic, ((jc>>16)*16+(jc&0xffff)) & 0xfffff);
         }
         qsort(wr,ih.relocs,4,le32_compare);
         relocsize = optimize_relocs(ibuf, ih_imagesize, wr, ih.relocs, w, &has_9a);
@@ -411,12 +504,17 @@ void PackExe::pack(OutputFile *fo)
     ph.u_len = ih_imagesize + relocsize;
     // prepare filter
     Filter ft(ph.level);
-    // compress
-    compressWithFilters(&ft, 32, 0, NULL, 0, MAXMATCH);
-    if (ph.max_run_found + ph.max_match_found > 0x8000)
-        throwCantPack("decompressor limit exceeded, send a bugreport");
+    // compress (max_match = 8192)
+    upx_compress_config_t cconf; cconf.reset();
+    cconf.conf_ucl.max_match = MAXMATCH;
+    cconf.conf_lzma.max_num_probs = 1846 + (768 << 4); // ushort: ~28 KiB stack
+    compressWithFilters(&ft, 32, &cconf);
 
-#ifdef TESTING
+    if (M_IS_NRV2B(ph.method) || M_IS_NRV2D(ph.method) || M_IS_NRV2E(ph.method))
+        if (ph.max_run_found + ph.max_match_found > 0x8000)
+            throwCantPack("decompressor limit exceeded, send a bugreport");
+
+#if TESTING
     if (opt->debug.debug_level)
     {
         printf("image+relocs %d -> %d\n",ih_imagesize+relocsize,ph.c_len);
@@ -480,72 +578,60 @@ void PackExe::pack(OutputFile *fo)
     }
     extra_info[eisize++] = (unsigned char) flag;
 
+    if (M_IS_NRV2B(ph.method) || M_IS_NRV2D(ph.method) || M_IS_NRV2E(ph.method))
+        linker->defineSymbol("bx_magic", 0x7FFF + 0x10 * ((packedsize & 15) + 1));
+
+    unsigned decompressor_entry = 1 + (packedsize & 15);
+    if (M_IS_LZMA(ph.method))
+        decompressor_entry = 0x10;
+    linker->defineSymbol("decompressor_entry", decompressor_entry);
+
     // patch loader
     if (flag & USEJUMP)
     {
         // I use a relocation entry to set the original cs
-        unsigned n = find_le32(loader,lsize,get_le32("IPCS"));
-        patch_le32(loader,lsize,get_le32("IPCS"), ih.cs*0x10000 + ih.ip);
+        unsigned n = getLoaderSectionStart("EXEJUMPF") + 1;
         n += packedsize + 2;
         oh.relocs = 1;
-        oh.firstreloc = (n&0xf) + ((n>>4)<<16);
+        oh.firstreloc = (n & 0xf) + ((n >> 4) << 16);
     }
     else
     {
-        patch_le16(loader,lsize,"IP",ih.ip);
-        if (ih.cs)
-            patch_le16(loader,lsize,"CS",ih.cs);
         oh.relocs = 0;
-        oh.firstreloc = ih.cs*0x10000 + ih.ip;
+        oh.firstreloc = ih.cs * 0x10000 + ih.ip;
     }
 
     // g++ 3.1 does not like the following line...
 //    oh.relocoffs = offsetof(exe_header_t, firstreloc);
     oh.relocoffs = ptr_diff(&oh.firstreloc, &oh);
 
-    if (flag & SP)
-        patch_le16(loader,lsize,"SP",ih.sp);
-    if (flag & SS)
-        patch_le16(loader,lsize,"SS",ih.ss);
-    if (relocsize)
-        patch_le16(loader,lsize,"RS",(ph.u_len <= DI_LIMIT || (ph.u_len & 0x7fff) >= relocsize ? 0 : MAXRELOCS) - relocsize);
+    linker->defineSymbol("destination_segment", oh.ss - ph.c_len / 16 - e_len / 16);
+    linker->defineSymbol("source_segment", e_len / 16 + (copysize - firstcopy) / 16);
+    linker->defineSymbol("copy_offset", firstcopy - 2);
+    linker->defineSymbol("words_to_copy",firstcopy / 2);
 
-    patchPackHeader(loader,e_len);
-
-    patch_le16(loader,e_len,"BX",0x800F + 0x10*((packedsize&15)+1) - 0x10);
-    patch_le16(loader,e_len,"BP",(packedsize&15)+1);
-
-    unsigned destpara = oh.ss - ph.c_len/16;
-    patch_le16(loader,e_len,"ES",destpara-e_len/16);
-    patch_le16(loader,e_len,"DS",e_len/16+(copysize-firstcopy)/16);
-    patch_le16(loader,e_len,"SI",firstcopy-2);
-    patch_le16(loader,e_len,"CX",firstcopy/2);
-
-    // finish --stub support
-    //if (ih.relocoffs >= 0x40 && memcmp(&ih.relocoffs,">TIPPACH",8))
-    //    throwCantPack("FIXME");
+    linker->defineSymbol("exe_stack_sp", oh.sp);
+    linker->defineSymbol("exe_stack_ss", oh.ss);
+    linker->defineSymbol("interrupt", get_le16(ibuf + 8));
+    linker->defineSymbol("attribute", get_le16(ibuf + 4));
+    linker->defineSymbol("orig_strategy", get_le16(ibuf + 6));
 
     const unsigned outputlen = sizeof(oh)+lsize+packedsize+eisize;
     oh.m512 = outputlen & 511;
     oh.p512 = (outputlen + 511) >> 9;
 
-    oh.ip = 0;
-    if (device_driver)
-    {
-        patch_le16(loader, e_len, "OP", oh.sp);
-        patch_le16(loader, e_len, "OS", oh.ss);
-        // copy .sys header
-        memcpy(loader + 4, ibuf + 4, 2);
-        memcpy(loader + 8, ibuf + 8, 2);
-        // copy original strategy
-        memcpy(loader + 10, ibuf + 6, 2);
-        oh.ip = getLoaderSection("EXEENTRY") - 2;
-    }
+    const char *exeentry = M_IS_LZMA(ph.method) ? "LZMAENTRY" : "EXEENTRY";
+    oh.ip = device_driver ? getLoaderSection(exeentry) - 2 : 0;
 
-//fprintf(stderr,"\ne_len=%x d_len=%x clen=%x oo=%x ulen=%x destp=%x copys=%x images=%x",e_len,d_len,packedsize,ph.overlap_overhead,ph.u_len,destpara,copysize,ih_imagesize);
+    defineDecompressorSymbols();
+    relocateLoader();
+    memcpy(loader, getLoader(), lsize);
+    patchPackHeader(loader,e_len);
+
+//fprintf(stderr,"\ne_len=%x d_len=%x c_len=%x oo=%x ulen=%x destp=%x copys=%x images=%x",e_len,d_len,packedsize,ph.overlap_overhead,ph.u_len,destpara,copysize,ih_imagesize);
 
     // write header + write loader + compressed file
-#ifdef TESTING
+#if TESTING
     if (opt->debug.debug_level)
         printf("\n%d %d %d %d\n",(int)sizeof(oh),e_len,packedsize,d_len);
 #endif
@@ -586,7 +672,7 @@ int PackExe::canUnpack()
         return false;
     const off_t off = ih.headsize16 * 16;
     fi->seek(off, SEEK_SET);
-    bool b = readPackHeader(256);
+    bool b = readPackHeader(4096);
     return b && (off + (off_t) ph.c_len <= file_size);
 }
 
@@ -714,6 +800,75 @@ void PackExe::unpack(OutputFile *fo)
     // copy the overlay
     copyOverlay(fo, ih_overlay, &obuf);
 }
+
+
+Linker* PackExe::newLinker() const
+{
+    return new ElfLinkerX86();
+}
+
+/*
+
+memory layout at decompression time
+===================================
+
+normal exe
+----------
+
+a, at load time
+
+(e - copying code, C - compressed data, d - decompressor+relocator,
+ x - not specified, U - uncompressed code+data, R uncompressed relocation)
+
+eeCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCdddd
+^ CS:0                                       ^ SS:0
+
+b, after copying
+
+xxxxxxxxxxxxxxxCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCdddd
+^ES:DI=0       ^ DS:SI=0                     ^ CS=SS, IP in range 0..0xf
+
+c, after uncompression
+
+UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUURRdddd
+                                           ^ ES:DI
+
+device driver
+-------------
+
+the file has 2 entry points, CS:0 in device driver mode, and
+CS:exe_as_device_entry in normal mode. the code in section DEVICEENTRY
+sets up the same environment for section EXEENTRY, as it would see in normal
+execution mode.
+
+lzma uncompression for normal exes
+----------------------------------
+
+(n - nrv2b uncompressor, l - nrv2b compressed lzma + relocator code)
+
+a, at load time
+
+nneelllCCCCCCCCCCCCCCCCCCCCCCCCC
+
+^ CS:0                                       ^ SS:0
+
+b, after nrv2b
+
+nneelllCCCCCCCCCCCCCCCCCCCCCCCCC             dddd
+^ CS:0                                       ^ SS:0x10
+
+after this, normal ee code runs
+
+lzma + device driver
+--------------------
+
+(D - device driver adapter)
+
+a, at load time
+
+DDnneelllCCCCCCCCCCCCCCCCCCCCCCCCC
+
+*/
 
 
 /*

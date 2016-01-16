@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,14 +22,14 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_SCREEN_H
-#define __UPX_SCREEN_H
+#define __UPX_SCREEN_H 1
 
-#if defined(USE_SCREEN)
+#if (USE_SCREEN)
 
 
 /*************************************************************************
@@ -113,7 +113,7 @@ void screen_show_frames(screen_t *);
 #undef LOGU
 #undef LOGS
 
-#if defined(SCREEN_DEBUG)
+#if (SCREEN_DEBUG)
 static void LOG(const char *format, ...)
 {
     static FILE *logfile = NULL;
@@ -129,13 +129,13 @@ static void LOG(const char *format, ...)
     fflush(logfile);
     va_end(args);
 }
-#  define LOGI(x)    LOG(#x " %ld\n", (long)(x))
-#  define LOGU(x)    LOG(#x " %lu\n", (long)(x))
-#  define LOGS(x)    LOG(#x " %s\n", x)
+#  define LOGI(x)   LOG(#x " %ld\n", (long)(x))
+#  define LOGU(x)   LOG(#x " %lu\n", (long)(x))
+#  define LOGS(x)   LOG(#x " %s\n", x)
 #else
-#  define LOGI(x)
-#  define LOGU(x)
-#  define LOGS(x)
+#  define LOGI(x)   /*empty*/
+#  define LOGU(x)   /*empty*/
+#  define LOGS(x)   /*empty*/
 #endif
 
 #endif /* if #0 */

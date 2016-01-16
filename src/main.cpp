@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2006 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,14 +22,14 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
-#include "mygetopt.h"
 #include "file.h"
 #include "packer.h"
+#include "p_elf.h"
 
 
 #if 1 && defined(__DJGPP__)
@@ -42,23 +42,27 @@ int _crt0_startup_flags = _CRT0_FLAG_UNIX_SBRK;
 // options
 **************************************************************************/
 
-void init_options(struct options_t *o)
+void options_t::reset()
 {
+    options_t *o = this;
     memset(o, 0, sizeof(*o));
-    memset(&o->crp, 0xff, sizeof(o->crp));
+    o->crp.reset();
 
     o->cmd = CMD_NONE;
-    o->method = -1;
+    o->method = M_NONE;
     o->level = -1;
-    o->filter = -1;
+    o->filter = FT_NONE;
 
     o->backup = -1;
     o->overlay = -1;
+    o->preserve_mode = true;
+    o->preserve_ownership = true;
+    o->preserve_timestamp = true;
 
     o->console = CON_FILE;
 #if defined(__DJGPP__)
     o->console = CON_INIT;
-#elif defined(USE_SCREEN_WIN32)
+#elif (USE_SCREEN_WIN32)
     o->console = CON_INIT;
 #elif 1 && defined(__linux__)
     o->console = CON_INIT;
@@ -75,8 +79,8 @@ void init_options(struct options_t *o)
     o->win32_pe.keep_resource = "";
 }
 
-static struct options_t global_options;
-struct options_t *opt = &global_options;
+static options_t global_options;
+options_t *opt = &global_options;
 
 static int done_output_name = 0;
 static int done_script_name = 0;
@@ -84,6 +88,19 @@ static int done_script_name = 0;
 
 const char *argv0 = "";
 const char *progname = "";
+
+static acc_getopt_t mfx_getopt;
+#define mfx_optarg      mfx_getopt.optarg
+#define mfx_optind      mfx_getopt.optind
+#define mfx_option      acc_getopt_longopt_t
+static void handle_opterr(acc_getopt_p g, const char *f, void *v)
+{
+    struct A { va_list ap; };
+    struct A *a = (struct A *) v;
+    fprintf( stderr, "%s: ", g->progname);
+    vfprintf(stderr, f, a->ap);
+    fprintf( stderr, "\n");
+}
 
 
 static int num_files = -1;
@@ -181,7 +198,7 @@ static void e_method(int m, int l)
 static void e_optarg(const char *n)
 {
     fflush(con_term);
-    fprintf(stderr,"%s: invalid argument in option `%s'\n", argv0, n);
+    fprintf(stderr,"%s: invalid argument in option '%s'\n", argv0, n);
     e_exit(EXIT_USAGE);
 }
 
@@ -189,7 +206,7 @@ static void e_optarg(const char *n)
 static void e_optval(const char *n)
 {
     fflush(con_term);
-    fprintf(stderr,"%s: invalid value for option `%s'\n", argv0, n);
+    fprintf(stderr,"%s: invalid value for option '%s'\n", argv0, n);
     e_exit(EXIT_USAGE);
 }
 
@@ -199,10 +216,10 @@ void e_envopt(const char *n)
 {
     fflush(con_term);
     if (n)
-        fprintf(stderr,"%s: invalid string `%s' in environment variable `%s'\n",
+        fprintf(stderr,"%s: invalid string '%s' in environment variable '%s'\n",
                         argv0, n, OPTIONS_VAR);
     else
-        fprintf(stderr,"%s: illegal option in environment variable `%s'\n",
+        fprintf(stderr,"%s: illegal option in environment variable '%s'\n",
                         argv0, OPTIONS_VAR);
     e_exit(EXIT_USAGE);
 }
@@ -225,7 +242,7 @@ void check_not_both(bool e1, bool e2, const char *c1, const char *c2)
     if (e1 && e2)
     {
         fprintf(stderr,"%s: ",argv0);
-        fprintf(stderr,"cannot use both `%s' and `%s'\n", c1, c2);
+        fprintf(stderr,"cannot use both '%s' and '%s'\n", c1, c2);
         e_usage();
     }
 }
@@ -235,11 +252,23 @@ void check_options(int i, int argc)
 {
     assert(i <= argc);
 
+    if (opt->cmd != CMD_COMPRESS)
+    {
+        // invalidate compression options
+        opt->method = 0;
+        opt->level = 0;
+        opt->exact = 0;
+        opt->small = 0;
+        opt->crp.reset();
+    }
+
     // set default overlay action
     if (!(opt->cmd == CMD_COMPRESS || opt->cmd == CMD_DECOMPRESS))
         opt->overlay = opt->COPY_OVERLAY;
     else if (opt->overlay < 0)
         opt->overlay = opt->COPY_OVERLAY;
+
+    check_not_both(opt->exact, opt->overlay == opt->STRIP_OVERLAY, "--exact", "--overlay=strip");
 
     // set default backup option
     if (opt->backup < 0)
@@ -250,14 +279,14 @@ void check_options(int i, int argc)
     check_not_both(opt->to_stdout, opt->output_name != NULL, "--stdout", "-o");
     if (opt->to_stdout && opt->cmd == CMD_COMPRESS)
     {
-        fprintf(stderr,"%s: cannot use `--stdout' when compressing\n", argv0);
+        fprintf(stderr,"%s: cannot use '--stdout' when compressing\n", argv0);
         e_usage();
     }
     if (opt->to_stdout || opt->output_name)
     {
         if (i + 1 != argc)
         {
-            fprintf(stderr,"%s: need exactly one argument when using `%s'\n",
+            fprintf(stderr,"%s: need exactly one argument when using '%s'\n",
                     argv0, opt->to_stdout ? "--stdout" : "-o");
             e_usage();
         }
@@ -298,8 +327,14 @@ static bool set_method(int m, int l)
     {
         if (!Packer::isValidCompressionMethod(m))
             return false;
-        opt->method = m;
-        opt->all_methods = false;
+#if 1
+        // something like "--brute --lzma" should not disable "--brute"
+        if (!opt->all_methods)
+#endif
+        {
+            opt->method = m;
+            opt->all_methods = false;
+        }
     }
     if (l > 0)
         opt->level = l;
@@ -313,7 +348,7 @@ static void set_output_name(const char *n, bool allow_m)
 #if 1
     if (done_output_name > 0)
     {
-        fprintf(stderr,"%s: option `-o' more than once given\n",argv0);
+        fprintf(stderr,"%s: option '-o' more than once given\n",argv0);
         e_usage();
     }
 #endif
@@ -336,7 +371,7 @@ static void set_script_name(const char *n, bool allow_m)
 #if 1
     if (done_script_name > 0)
     {
-        fprintf(stderr,"%s: option `--script' more than once given\n",argv0);
+        fprintf(stderr,"%s: option '--script' more than once given\n",argv0);
         e_usage();
     }
 #endif
@@ -404,27 +439,57 @@ char* prepare_shortopts(char *buf, const char *n,
 
 
 template <class T>
-int getoptvar(T *var, const T minval, const T maxval)
+int getoptvar(T *var, const T min_value, const T max_value, const char *arg_fatal)
 {
     const char *p = mfx_optarg;
     char *endptr;
+    int r = 0;
+    long n;
+    T v;
 
     if (!p || !p[0])
-        return -1;
+        { r = -1; goto error; }
     // avoid interpretation as octal value
     while (p[0] == '0' && isdigit(p[1]))
         p++;
-    long n = strtol(p, &endptr, 0);
+    n = strtol(p, &endptr, 0);
     if (*endptr != '\0')
-        return -2;
-    T v = (T) n;
-    if (v < minval)
-        return -3;
-    if (v > maxval)
-        return -4;
+        { r = -2; goto error; }
+    v = (T) n;
+    if (v < min_value)
+        { r = -3; goto error; }
+    if (v > max_value)
+        { r = -4; goto error; }
     *var = v;
-    return 0;
+    goto done;
+error:
+    if (arg_fatal != NULL)
+        e_optval(arg_fatal);
+done:
+    return r;
 }
+
+#if 1 && (ACC_CC_GNUC >= 0x030300)
+template <class T, T default_value, T min_value, T max_value>
+int getoptvar(OptVar<T,default_value,min_value,max_value> *var, const char *arg_fatal)
+{
+    T v = default_value;
+    int r = getoptvar(&v, min_value, max_value, arg_fatal);
+    if (r == 0)
+        *var = v;
+    return r;
+}
+#else
+template <class T>
+int getoptvar(T *var, const char *arg_fatal)
+{
+    typename T::Type v = T::default_value_c;
+    int r = getoptvar(&v, T::min_value_c, T::max_value_c, arg_fatal);
+    if (r == 0)
+        *var = v;
+    return r;
+}
+#endif
 
 
 static int do_option(int optc, const char *arg)
@@ -449,7 +514,7 @@ static int do_option(int optc, const char *arg)
     case 'f':
         opt->force++;
         break;
-    case 902:
+    case 909:
         set_cmd(CMD_FILEINFO);
         break;
     case 'h':
@@ -458,10 +523,13 @@ static int do_option(int optc, const char *arg)
         set_cmd(CMD_HELP);
         break;
     case 'h'+256:
-#if 0
-        /* according to GNU standards */
-        set_term(stdout);
-        opt->console = CON_FILE;
+#if 1
+        if (!acc_isatty(STDOUT_FILENO))
+        {
+            /* according to GNU standards */
+            set_term(stdout);
+            opt->console = CON_FILE;
+        }
 #endif
         show_help(1);
         e_exit(EXIT_OK);
@@ -500,16 +568,31 @@ static int do_option(int optc, const char *arg)
 
     // method
     case 702:
+        opt->method_nrv2b_seen = true;
         if (!set_method(M_NRV2B_LE32, -1))
             e_method(M_NRV2B_LE32, opt->level);
         break;
     case 704:
+        opt->method_nrv2d_seen = true;
         if (!set_method(M_NRV2D_LE32, -1))
             e_method(M_NRV2D_LE32, opt->level);
         break;
     case 705:
+        opt->method_nrv2e_seen = true;
         if (!set_method(M_NRV2E_LE32, -1))
             e_method(M_NRV2E_LE32, opt->level);
+        break;
+    case 721:
+        opt->method_lzma_seen = true;
+        opt->all_methods_use_lzma = true;
+        if (!set_method(M_LZMA, -1))
+            e_method(M_LZMA, opt->level);
+        break;
+    case 722:
+        opt->method_lzma_seen = false;
+        opt->all_methods_use_lzma = false;
+        if (M_IS_LZMA(opt->method))
+            opt->method = -1;
         break;
 
     // compression level
@@ -526,12 +609,16 @@ static int do_option(int optc, const char *arg)
             e_method(opt->method, optc);
         break;
 
+    case 902:                               // --ultra-brute
+        opt->ultra_brute = true;
+        /* fallthrough */
     case 901:                               // --brute
         opt->all_methods = true;
+        opt->all_methods_use_lzma = true;
         opt->method = -1;
         opt->all_filters = true;
         opt->filter = -1;
-        opt->crp.m_size = 999999;
+        opt->crp.crp_ucl.m_size = 999999;
         /* fallthrough */
     case 900:                               // --best
         if (!set_method(-1, 10))
@@ -554,6 +641,20 @@ static int do_option(int optc, const char *arg)
             e_optarg(arg);
         opt->debug.dump_stub_loader = mfx_optarg;
         break;
+    case 545:
+        opt->debug.disable_random_id = true;
+        break;
+
+    // mp (meta)
+    case 501:
+        getoptvar(&opt->mp_compress_task, 1, 999999, arg);
+        break;
+    case 502:
+        opt->mp_query_format = true;
+        break;
+    case 503:
+        opt->mp_query_num_tasks = true;
+        break;
 
     // misc
     case 512:
@@ -571,6 +672,15 @@ static int do_option(int optc, const char *arg)
     case 519:
         opt->no_env = true;
         break;
+    case 526:
+        opt->preserve_mode = false;
+        break;
+    case 527:
+        opt->preserve_ownership = false;
+        break;
+    case 528:
+        opt->preserve_timestamp = false;
+        break;
     // compression settings
     case 520:                               // --small
         if (opt->small < 0)
@@ -578,7 +688,7 @@ static int do_option(int optc, const char *arg)
         opt->small++;
         break;
     case 521:                               // --filter=
-        getoptvar(&opt->filter, 0, 255);
+        getoptvar(&opt->filter, 0, 255, arg);
         opt->all_filters = false;
         break;
     case 522:                               // --no-filter
@@ -592,37 +702,64 @@ static int do_option(int optc, const char *arg)
         break;
     case 524:                               // --all-methods
         opt->all_methods = true;
+        opt->all_methods_use_lzma = true;
         opt->method = -1;
         break;
-    // compression parms
-    case 531:
-        getoptvar(&opt->crp.c_flags, 0, 3);
+    case 525:                               // --exact
+        opt->exact = true;
         break;
-    case 532:
-        getoptvar(&opt->crp.s_level, 0, 2);
+    // compression runtime parameters
+    case 801:
+        getoptvar(&opt->crp.crp_ucl.c_flags, 0, 3, arg);
         break;
-    case 533:
-        getoptvar(&opt->crp.h_level, 0, 1);
+    case 802:
+        getoptvar(&opt->crp.crp_ucl.s_level, 0, 2, arg);
         break;
-    case 534:
-        getoptvar(&opt->crp.p_level, 0, 7);
+    case 803:
+        getoptvar(&opt->crp.crp_ucl.h_level, 0, 1, arg);
         break;
-    case 535:
-        getoptvar(&opt->crp.max_offset, 256u, ~0u);
+    case 804:
+        getoptvar(&opt->crp.crp_ucl.p_level, 0, 7, arg);
         break;
-    case 536:
-        getoptvar(&opt->crp.max_match, 16u, ~0u);
+    case 805:
+        getoptvar(&opt->crp.crp_ucl.max_offset, 256u, ~0u, arg);
         break;
-    case 537:
-        if (getoptvar(&opt->crp.m_size, 10000u, 999999u) != 0)
-            e_optval("--crp-ms=");
+    case 806:
+        getoptvar(&opt->crp.crp_ucl.max_match, 16u, ~0u, arg);
+        break;
+    case 807:
+        getoptvar(&opt->crp.crp_ucl.m_size, 10000u, 999999u, arg);
+        break;
+    case 811:
+        getoptvar(&opt->crp.crp_lzma.pos_bits, arg);
+        break;
+    case 812:
+        getoptvar(&opt->crp.crp_lzma.lit_pos_bits, arg);
+        break;
+    case 813:
+        getoptvar(&opt->crp.crp_lzma.lit_context_bits, arg);
+        break;
+    case 814:
+        getoptvar(&opt->crp.crp_lzma.dict_size, arg);
+        break;
+    case 816:
+        getoptvar(&opt->crp.crp_lzma.num_fast_bytes, arg);
+        break;
+    case 821:
+        getoptvar(&opt->crp.crp_zlib.mem_level, arg);
+        break;
+    case 822:
+        getoptvar(&opt->crp.crp_zlib.window_bits, arg);
+        break;
+    case 823:
+        getoptvar(&opt->crp.crp_zlib.strategy, arg);
         break;
     // backup
     case 'k':
         opt->backup = 1;
         break;
     case 541:
-        if (opt->backup != 1)           // do not overide `--backup'
+        if (opt->backup != 1)           // do not overide '--backup'
             opt->backup = 0;
         break;
     // overlay
@@ -680,18 +817,20 @@ static int do_option(int optc, const char *arg)
         break;
     case 630:
         opt->win32_pe.compress_exports = 1;
-        getoptvar(&opt->win32_pe.compress_exports, 0, 1);
+        if (mfx_optarg && mfx_optarg[0])
+            getoptvar(&opt->win32_pe.compress_exports, 0, 1, arg);
         //printf("compress_exports: %d\n", opt->win32_pe.compress_exports);
         break;
     case 631:
         opt->win32_pe.compress_icons = 1;
-        getoptvar(&opt->win32_pe.compress_icons, 0, 2);
+        if (mfx_optarg && mfx_optarg[0])
+            getoptvar(&opt->win32_pe.compress_icons, 0, 3, arg);
         //printf("compress_icons: %d\n", opt->win32_pe.compress_icons);
         break;
     case 632:
-        opt->win32_pe.compress_resources = true;
-        if (mfx_optarg && strcmp(mfx_optarg,"0") == 0)
-            opt->win32_pe.compress_resources = false;
+        opt->win32_pe.compress_resources = 1;
+        if (mfx_optarg && mfx_optarg[0])
+            getoptvar(&opt->win32_pe.compress_resources, 0, 1, arg);
         //printf("compress_resources: %d\n", opt->win32_pe.compress_resources);
         break;
     case 633:
@@ -699,8 +838,8 @@ static int do_option(int optc, const char *arg)
         break;
     case 634:
         opt->win32_pe.strip_relocs = 1;
-        if (mfx_optarg && strcmp(mfx_optarg,"0") == 0)
-            opt->win32_pe.strip_relocs = 0;
+        if (mfx_optarg && mfx_optarg[0])
+            getoptvar(&opt->win32_pe.strip_relocs, 0, 1, arg);
         //printf("strip_relocs: %d\n", opt->win32_pe.strip_relocs);
         break;
     case 635:
@@ -712,7 +851,7 @@ static int do_option(int optc, const char *arg)
         opt->atari_tos.split_segments = true;
         break;
     case 660:
-        getoptvar(&opt->o_unix.blocksize, 8192u, ~0u);
+        getoptvar(&opt->o_unix.blocksize, 8192u, ~0u, arg);
         break;
     case 661:
         opt->o_unix.force_execve = true;
@@ -720,7 +859,7 @@ static int do_option(int optc, const char *arg)
     case 662:
         opt->o_unix.script_name = "/usr/local/lib/upx/upxX";
         if (mfx_optarg && mfx_optarg[0])
-            set_script_name(mfx_optarg,1);
+            set_script_name(mfx_optarg, 1);
         break;
     case 663:
         opt->o_unix.is_ptinterp = true;
@@ -730,6 +869,18 @@ static int do_option(int optc, const char *arg)
         break;
     case 665:
         opt->o_unix.make_ptinterp = true;
+        break;
+    case 666:  // Linux
+        opt->o_unix.osabi0 = Elf32_Ehdr::ELFOSABI_LINUX;
+        break;
+    case 667:  // FreeBSD
+        opt->o_unix.osabi0 = Elf32_Ehdr::ELFOSABI_FREEBSD;
+        break;
+    case 668:  // NetBSD
+        opt->o_unix.osabi0 = Elf32_Ehdr::ELFOSABI_NETBSD;
+        break;
+    case 669:  // OpenBSD
+        opt->o_unix.osabi0 = Elf32_Ehdr::ELFOSABI_OPENBSD;
         break;
     case 670:
         opt->ps1_exe.boot_only = true;
@@ -741,13 +892,19 @@ static int do_option(int optc, const char *arg)
     case 672:
         opt->ps1_exe.do_8bit = true;
         break;
+    case 673:
+        opt->ps1_exe.do_8mib = false;
+        break;
+    case 674:
+        opt->o_unix.unmap_all_pages = true;  // val ?
+        break;
 
     case '\0':
         return -1;
     case ':':
         return -2;
     default:
-        fprintf(stderr,"%s: internal error in getopt (%d)\n",argv0,optc);
+        fprintf(stderr,"%s: internal error in getopt (%d)\n", argv0, optc);
         return -3;
     }
 
@@ -764,10 +921,11 @@ static const struct mfx_option longopts[] =
     // commands
     {"best",             0x10, 0, 900},     // compress best
     {"brute",            0x10, 0, 901},     // compress best, brute force
+    {"ultra-brute",      0x10, 0, 902},     // compress best, brute force
     {"decompress",          0, 0, 'd'},     // decompress
     {"fast",             0x10, 0, '1'},     // compress faster
-    {"fileinfo",         0x10, 0, 902},     // display info about file
-    {"file-info",        0x10, 0, 902},     // display info about file
+    {"fileinfo",         0x10, 0, 909},     // display info about file
+    {"file-info",        0x10, 0, 909},     // display info about file
     {"help",                0, 0, 'h'+256}, // give help
     {"license",             0, 0, 'L'},     // display software license
     {"list",                0, 0, 'l'},     // list compressed exe
@@ -780,7 +938,10 @@ static const struct mfx_option longopts[] =
     {"force-compress",      0, 0, 'f'},     //   and compression of suspicious files
     {"info",                0, 0, 'i'},     // info mode
     {"no-env",           0x10, 0, 519},     // no environment var
+    {"no-mode",          0x10, 0, 526},     // do not preserve mode (permissions)
+    {"no-owner",         0x10, 0, 527},     // do not preserve ownership
     {"no-progress",         0, 0, 516},     // no progress bar
+    {"no-time",          0x10, 0, 528},     // do not preserve timestamp
     {"output",           0x21, 0, 'o'},
     {"quiet",               0, 0, 'q'},     // quiet mode
     {"silent",              0, 0, 'q'},     // quiet mode
@@ -796,18 +957,19 @@ static const struct mfx_option longopts[] =
     {"dump-stub-loader" ,0x31, 0, 544},     // for internal debugging
     {"fake-stub-version",0x31, 0, 542},     // for internal debugging
     {"fake-stub-year"   ,0x31, 0, 543},     // for internal debugging
+    {"disable-random-id",0x10, 0, 545},     // for internal debugging
 
     // backup options
-    {"backup",              0, 0, 'k'},
-    {"keep",                0, 0, 'k'},
-    {"no-backup",           0, 0, 541},
+    {"backup",           0x10, 0, 'k'},
+    {"keep",             0x10, 0, 'k'},
+    {"no-backup",        0x10, 0, 541},
 
     // overlay options
     {"overlay",          0x31, 0, 551},     // --overlay=
-    {"skip-overlay",        0, 0, 552},
-    {"no-overlay",          0, 0, 552},     // old name
-    {"copy-overlay",        0, 0, 553},
-    {"strip-overlay",       0, 0, 554},
+    {"skip-overlay",     0x10, 0, 552},
+    {"no-overlay",       0x10, 0, 552},     // old name
+    {"copy-overlay",     0x10, 0, 553},
+    {"strip-overlay",    0x10, 0, 554},
 
     // CPU options
     {"cpu",              0x31, 0, 560},     // --cpu=
@@ -816,33 +978,53 @@ static const struct mfx_option longopts[] =
     {"486",              0x10, 0, 564},
 
     // color options
-    {"no-color",            0, 0, 512},
-    {"mono",                0, 0, 513},
-    {"color",               0, 0, 514},
+    {"no-color",         0x10, 0, 512},
+    {"mono",             0x10, 0, 513},
+    {"color",            0x10, 0, 514},
 
     // compression method
     {"nrv2b",            0x10, 0, 702},     // --nrv2b
     {"nrv2d",            0x10, 0, 704},     // --nrv2d
     {"nrv2e",            0x10, 0, 705},     // --nrv2e
+    {"lzma",             0x10, 0, 721},     // --lzma
+    {"no-lzma",          0x10, 0, 722},     // (disable all_methods_use_lzma)
     // compression settings
     {"all-filters",      0x10, 0, 523},
     {"all-methods",      0x10, 0, 524},
+    {"exact",            0x10, 0, 525},     // user requires byte-identical decompression
     {"filter",           0x31, 0, 521},     // --filter=
     {"no-filter",        0x10, 0, 522},
     {"small",            0x10, 0, 520},
     // compression runtime parameters
-    {"crp-cf",           0x31, 0, 531},
-    {"crp-sl",           0x31, 0, 532},
-    {"crp-hl",           0x31, 0, 533},
-    {"crp-pl",           0x31, 0, 534},
-    {"crp-mo",           0x31, 0, 535},
-    {"crp-mm",           0x31, 0, 536},
-    {"crp-ms",           0x31, 0, 537},
+    {"crp-nrv-cf",       0x31, 0, 801},
+    {"crp-nrv-sl",       0x31, 0, 802},
+    {"crp-nrv-hl",       0x31, 0, 803},
+    {"crp-nrv-pl",       0x31, 0, 804},
+    {"crp-nrv-mo",       0x31, 0, 805},
+    {"crp-nrv-mm",       0x31, 0, 806},
+    {"crp-nrv-ms",       0x31, 0, 807},
+    {"crp-ucl-cf",       0x31, 0, 801},
+    {"crp-ucl-sl",       0x31, 0, 802},
+    {"crp-ucl-hl",       0x31, 0, 803},
+    {"crp-ucl-pl",       0x31, 0, 804},
+    {"crp-ucl-mo",       0x31, 0, 805},
+    {"crp-ucl-mm",       0x31, 0, 806},
+    {"crp-ucl-ms",       0x31, 0, 807},
+    {"crp-lzma-pb",      0x31, 0, 811},
+    {"crp-lzma-lp",      0x31, 0, 812},
+    {"crp-lzma-lc",      0x31, 0, 813},
+    {"crp-lzma-ds",      0x31, 0, 814},
+    {"crp-lzma-fb",      0x31, 0, 816},
+    {"crp-zlib-ml",      0x31, 0, 821},
+    {"crp-zlib-wb",      0x31, 0, 822},
+    {"crp-zlib-st",      0x31, 0, 823},
+    // [deprecated - only for compatibility with UPX 2.0x]
+    {"crp-ms",           0x31, 0, 807},
 
     // atari/tos
     {"split-segments",   0x10, 0, 650},
     // djgpp2/coff
-    {"coff",                0, 0, 610},     // produce COFF output
+    {"coff",             0x10, 0, 610},     // produce COFF output
     // dos/com
     // dos/exe
     //{"force-stub",             0x10, 0, 600},
@@ -854,11 +1036,20 @@ static const struct mfx_option longopts[] =
 #if 0
     {"script",           0x31, 0, 662},     // --script=
 #endif
-    {"is_ptinterp",         0, 0, 663},     // linux/elf386 PT_INTERP program
-    {"use_ptinterp",        0, 0, 664},     // linux/elf386 PT_INTERP program
-    {"make_ptinterp",       0, 0, 665},     // linux/elf386 PT_INTERP program
+    {"is_ptinterp",      0x10, 0, 663},     // linux/elf386 PT_INTERP program
+    {"use_ptinterp",     0x10, 0, 664},     // linux/elf386 PT_INTERP program
+    {"make_ptinterp",    0x10, 0, 665},     // linux/elf386 PT_INTERP program
+    {"Linux",            0x10, 0, 666},
+    {"linux",            0x10, 0, 666},
+    {"FreeBSD",          0x10, 0, 667},
+    {"freebsd",          0x10, 0, 667},
+    {"NetBSD",           0x10, 0, 668},
+    {"netbsd",           0x10, 0, 668},
+    {"OpenBSD",          0x10, 0, 669},
+    {"openbsd",          0x10, 0, 669},
+    {"unmap-all-pages",  0x10, 0, 674},     // linux /proc/self/exe vanishes
     // watcom/le
-    {"le",                  0, 0, 620},     // produce LE output
+    {"le",               0x10, 0, 620},     // produce LE output
     // win32/pe
     {"compress-exports",    2, 0, 630},
     {"compress-icons",      2, 0, 631},
@@ -870,17 +1061,26 @@ static const struct mfx_option longopts[] =
     {"boot-only",        0x10, 0, 670},
     {"no-align",         0x10, 0, 671},
     {"8-bit",            0x10, 0, 672},
+    {"8mib-ram",         0x10, 0, 673},
+    {"8mb-ram",          0x10, 0, 673},
+
+    // mp (meta) options
+    {"mp-compress-task",        0x31, 0, 501},
+    {"mp-query-format",         0x10, 0, 502},
+    {"mp-query-num-tasks",      0x10, 0, 503},
 
     { NULL, 0, NULL, 0 }
 };
 
     int optc, longind;
-    char buf[256];
+    char shortopts[256];
 
-    prepare_shortopts(buf,"123456789hH?V",longopts),
-    mfx_optind = 0;
-    mfx_opterr = 1;
-    while ((optc = mfx_getopt_long(argc, argv, buf, longopts, &longind)) >= 0)
+    prepare_shortopts(shortopts, "123456789hH?V", longopts),
+    acc_getopt_init(&mfx_getopt, 1, argc, argv);
+    mfx_getopt.progname = progname;
+    mfx_getopt.opterr = handle_opterr;
+    opt->o_unix.osabi0 = Elf32_Ehdr::ELFOSABI_LINUX;
+    while ((optc = acc_getopt(&mfx_getopt, shortopts, longopts, &longind)) >= 0)
     {
         if (do_option(optc, argv[mfx_optind-1]) != 0)
             e_usage();
@@ -901,6 +1101,7 @@ static const struct mfx_option longopts[] =
     // commands
     {"best",             0x10, 0, 900},     // compress best
     {"brute",            0x10, 0, 901},     // compress best, brute force
+    {"ultra-brute",      0x10, 0, 902},     // compress best, brute force
     {"fast",             0x10, 0, '1'},     // compress faster
 
     // options
@@ -910,17 +1111,20 @@ static const struct mfx_option longopts[] =
     {"silent",              0, 0, 'q'},     // quiet mode
     {"verbose",             0, 0, 'v'},     // verbose mode
 
+    // debug options
+    {"disable-random-id",0x10, 0, 545},     // for internal debugging
+
     // backup options
-    {"backup",              0, 0, 'k'},
-    {"keep",                0, 0, 'k'},
+    {"backup",           0x10, 0, 'k'},
+    {"keep",             0x10, 0, 'k'},
     {"no-backup",        0x10, 0, 541},
 
     // overlay options
     {"overlay",          0x31, 0, 551},     // --overlay=
-    {"skip-overlay",        0, 0, 552},
-    {"no-overlay",          0, 0, 552},     // old name
-    {"copy-overlay",        0, 0, 553},
-    {"strip-overlay",       0, 0, 554},
+    {"skip-overlay",     0x10, 0, 552},
+    {"no-overlay",       0x10, 0, 552},     // old name
+    {"copy-overlay",     0x10, 0, 553},
+    {"strip-overlay",    0x10, 0, 554},
 
     // CPU options
     {"cpu",              0x31, 0, 560},     // --cpu=
@@ -929,18 +1133,21 @@ static const struct mfx_option longopts[] =
     {"486",              0x10, 0, 564},
 
     // color options
-    {"no-color",            0, 0, 512},
-    {"mono",                0, 0, 513},
-    {"color",               0, 0, 514},
+    {"no-color",         0x10, 0, 512},
+    {"mono",             0x10, 0, 513},
+    {"color",            0x10, 0, 514},
 
+    // compression settings
+    {"exact",            0x10, 0, 525},     // user requires byte-identical decompression
+
+    // compression method
+    {"nrv2b",            0x10, 0, 702},     // --nrv2b
+    {"nrv2d",            0x10, 0, 704},     // --nrv2d
+    {"nrv2e",            0x10, 0, 705},     // --nrv2e
+    {"lzma",             0x10, 0, 721},     // --lzma
+    {"no-lzma",          0x10, 0, 722},     // (disable all_methods_use_lzma)
+    // compression settings
     // compression runtime parameters
-    {"crp-cf",           0x31, 0, 531},
-    {"crp-sl",           0x31, 0, 532},
-    {"crp-hl",           0x31, 0, 533},
-    {"crp-pl",           0x31, 0, 534},
-    {"crp-mo",           0x31, 0, 535},
-    {"crp-mm",           0x31, 0, 536},
-    {"crp-ms",           0x31, 0, 537},
 
     // win32/pe
     {"compress-exports",    2, 0, 630},
@@ -959,7 +1166,7 @@ static const struct mfx_option longopts[] =
     int targc;
     char **targv = NULL;
     static const char sep[] = " \t";
-    char buf[256];
+    char shortopts[256];
 
     var = getenv(OPTIONS_VAR);
     if (var == NULL || !var[0])
@@ -1015,10 +1222,11 @@ static const struct mfx_option longopts[] =
             e_envopt(targv[i]);
 
     /* handle options */
-    prepare_shortopts(buf,"123456789",longopts);
-    mfx_optind = 0;
-    mfx_opterr = 1;
-    while ((optc = mfx_getopt_long(targc, targv, buf, longopts, &longind)) >= 0)
+    prepare_shortopts(shortopts, "123456789", longopts);
+    acc_getopt_init(&mfx_getopt, 1, targc, targv);
+    mfx_getopt.progname = progname;
+    mfx_getopt.opterr = handle_opterr;
+    while ((optc = acc_getopt(&mfx_getopt, shortopts, longopts, &longind)) >= 0)
     {
         if (do_option(optc, targv[mfx_optind-1]) != 0)
             e_envopt(NULL);
@@ -1064,9 +1272,29 @@ static void first_options(int argc, char **argv)
 **************************************************************************/
 
 template <class T> struct TestBELE {
-static int test(void)
+static bool test(void)
 {
+    COMPILE_TIME_ASSERT_ALIGNED1(T)
+    __packed_struct(test1_t) char a; T b;    __packed_struct_end()
+    __packed_struct(test2_t) char a; T b[3]; __packed_struct_end()
+    test1_t t1[7]; UNUSED(t1); test2_t t2[7]; UNUSED(t2);
+    COMPILE_TIME_ASSERT(sizeof(test1_t) == 1 + sizeof(T))
+    COMPILE_TIME_ASSERT_ALIGNED1(test1_t)
+    COMPILE_TIME_ASSERT(sizeof(t1) == 7 + 7*sizeof(T))
+    COMPILE_TIME_ASSERT(sizeof(test2_t) == 1 + 3*sizeof(T))
+    COMPILE_TIME_ASSERT_ALIGNED1(test2_t)
+    COMPILE_TIME_ASSERT(sizeof(t2) == 7 + 21*sizeof(T))
+#if defined(__acc_alignof)
+    COMPILE_TIME_ASSERT(__acc_alignof(t1) == 1)
+    COMPILE_TIME_ASSERT(__acc_alignof(t2) == 1)
+#endif
+#if 1 && (ACC_CC_WATCOMC)
+    test1_t t11; COMPILE_TIME_ASSERT(sizeof(t11.a) <= sizeof(t11.b))
+    test2_t t22; COMPILE_TIME_ASSERT(sizeof(t22.a) <= sizeof(t22.b))
+#endif
+#if 1 && !defined(UPX_OFFICIAL_BUILD)
     T allbits; allbits = 0; allbits -= 1;
+    //++allbits; allbits++; --allbits; allbits--;
     T v1; v1 = 1; v1 *= 2; v1 -= 1;
     T v2; v2 = 1;
     assert( (v1 == v2)); assert(!(v1 != v2));
@@ -1080,7 +1308,9 @@ static int test(void)
     assert(v1 == 1); assert(v2 == 0);
     v1 <<= 1; v1 |= v2; v1 >>= 1; v2 &= v1; v2 /= v1; v2 *= v1;
     assert(v1 == 1); assert(v2 == 0);
-    return (v1 ^ v2) == 1;
+    if ((v1 ^ v2) != 1) return false;
+#endif
+    return true;
 }};
 
 
@@ -1112,12 +1342,12 @@ void upx_sanity_check(void)
     COMPILE_TIME_ASSERT(sizeof(LE32) == 4)
     COMPILE_TIME_ASSERT(sizeof(LE64) == 8)
 
-    COMPILE_TIME_ASSERT_ALIGNOF(BE16, char)
-    COMPILE_TIME_ASSERT_ALIGNOF(BE32, char)
-    COMPILE_TIME_ASSERT_ALIGNOF(BE64, char)
-    COMPILE_TIME_ASSERT_ALIGNOF(LE16, char)
-    COMPILE_TIME_ASSERT_ALIGNOF(LE32, char)
-    COMPILE_TIME_ASSERT_ALIGNOF(LE64, char)
+    COMPILE_TIME_ASSERT_ALIGNED1(BE16)
+    COMPILE_TIME_ASSERT_ALIGNED1(BE32)
+    COMPILE_TIME_ASSERT_ALIGNED1(BE64)
+    COMPILE_TIME_ASSERT_ALIGNED1(LE16)
+    COMPILE_TIME_ASSERT_ALIGNED1(LE32)
+    COMPILE_TIME_ASSERT_ALIGNED1(LE64)
 
     COMPILE_TIME_ASSERT(sizeof(UPX_VERSION_STRING4) == 4 + 1)
     assert(strlen(UPX_VERSION_STRING4) == 4);
@@ -1128,37 +1358,49 @@ void upx_sanity_check(void)
     assert(memcmp(UPX_VERSION_DATE + strlen(UPX_VERSION_DATE) - 4, UPX_VERSION_YEAR, 4) == 0);
 
 #if 1
-#  if 1 && !defined(UPX_OFFICIAL_BUILD)
     assert(TestBELE<LE16>::test());
     assert(TestBELE<LE32>::test());
     assert(TestBELE<LE64>::test());
     assert(TestBELE<BE16>::test());
     assert(TestBELE<BE32>::test());
     assert(TestBELE<BE64>::test());
-#  endif
     {
-    static const unsigned char dd[32] = { 0, 0, 0, 0, 0, 0, 0,
-         0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8,
-         0, 0, 0, 0,
-         0x7f, 0x7e, 0x7d, 0x7c, 0x7b, 0x7a, 0x79, 0x78,
+    static const unsigned char dd[32]
+#if 1 && (ACC_CC_GNUC || ACC_CC_INTELC || ACC_CC_PATHSCALE) && defined(__ELF__)
+        __attribute__((__aligned__(16)))
+#endif
+        = { 0, 0, 0, 0, 0, 0, 0,
+        0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8,
+        0, 0, 0, 0,
+        0x7f, 0x7e, 0x7d, 0x7c, 0x7b, 0x7a, 0x79, 0x78,
     0, 0, 0, 0, 0 };
     const unsigned char *d;
+    const N_BELE_RTP::AbstractPolicy *bele;
     d = dd + 7;
     assert(upx_adler32(d, 4) == 0x09f003f7);
     assert(upx_adler32(d, 4, 0) == 0x09ec03f6);
     assert(upx_adler32(d, 4, 1) == 0x09f003f7);
+    bele = &N_BELE_RTP::be_policy;
     assert(get_be16(d) == 0xfffe);
+    assert(bele->get16(d) == 0xfffe);
     assert(get_be16_signed(d) == -2);
     assert(get_be24(d) == 0xfffefd);
+    assert(bele->get24(d) == 0xfffefd);
     assert(get_be24_signed(d) == -259);
     assert(get_be32(d) == 0xfffefdfc);
+    assert(bele->get32(d) == 0xfffefdfc);
     assert(get_be32_signed(d) == -66052);
+    bele = &N_BELE_RTP::le_policy;
     assert(get_le16(d) == 0xfeff);
+    assert(bele->get16(d) == 0xfeff);
     assert(get_le16_signed(d) == -257);
     assert(get_le24(d) == 0xfdfeff);
+    assert(bele->get24(d) == 0xfdfeff);
     assert(get_le24_signed(d) == -131329);
     assert(get_le32(d) == 0xfcfdfeff);
+    assert(bele->get32(d) == 0xfcfdfeff);
     assert(get_le32_signed(d) == -50462977);
+    assert(get_le64_signed(d) == ACC_INT64_C(-506097522914230529));
     assert(find_be16(d, 2, 0xfffe) == 0);
     assert(find_le16(d, 2, 0xfeff) == 0);
     assert(find_be32(d, 4, 0xfffefdfc) == 0);
@@ -1167,6 +1409,7 @@ void upx_sanity_check(void)
     assert(get_be16_signed(d) == 32638);
     assert(get_be24_signed(d) == 8355453);
     assert(get_be32_signed(d) == 2138996092);
+    assert(get_be64_signed(d) == ACC_INT64_C(9186918263483431288));
     }
 #endif
 }
@@ -1176,7 +1419,11 @@ void upx_sanity_check(void)
 // main entry point
 **************************************************************************/
 
-#if !defined(WITH_GUI)
+#if !(WITH_GUI)
+
+#if (ACC_ARCH_M68K && ACC_OS_TOS && ACC_CC_GNUC) && defined(__MINT__)
+extern "C" { extern long _stksize; long _stksize = 256 * 1024L; }
+#endif
 
 int __acc_cdecl_main main(int argc, char *argv[])
 {
@@ -1191,7 +1438,7 @@ int __acc_cdecl_main main(int argc, char *argv[])
     acc_wildargv(&argc, &argv);
 
     upx_sanity_check();
-    init_options(opt);
+    opt->reset();
 
     if (!argv[0] || !argv[0][0])
         argv[0] = default_argv0;
@@ -1222,7 +1469,7 @@ int __acc_cdecl_main main(int argc, char *argv[])
 
     set_term(stderr);
 
-#if defined(WITH_UCL)
+#if (WITH_UCL)
     if (ucl_init() != UCL_E_OK)
     {
         show_head();
@@ -1233,7 +1480,7 @@ int __acc_cdecl_main main(int argc, char *argv[])
         e_exit(EXIT_INIT);
     }
 #endif
-#if defined(WITH_NRV)
+#if (WITH_NRV)
     if (nrv_init() != NRV_E_OK || NRV_VERSION != nrv_version())
     {
         show_head();
@@ -1292,14 +1539,6 @@ int __acc_cdecl_main main(int argc, char *argv[])
         break;
     }
 
-    if (opt->cmd != CMD_COMPRESS)
-    {
-        // invalidate compression options
-        opt->method = 0;
-        opt->level = 0;
-        memset(&opt->crp, 0xff, sizeof(opt->crp));
-    }
-
     /* check options */
     if (argc == 1)
         e_help();
@@ -1318,7 +1557,7 @@ int __acc_cdecl_main main(int argc, char *argv[])
     set_term(stdout);
     do_files(i,argc,argv);
 
-#if 0 && (UPX_VERSION_HEX < 0x020000)
+#if 0 && (UPX_VERSION_HEX < 0x030000)
     {
         FILE *f = stdout;
         int fg = con_fg(f,FG_RED);
@@ -1334,7 +1573,7 @@ int __acc_cdecl_main main(int argc, char *argv[])
     return exit_code;
 }
 
-#endif /* !defined(WITH_GUI) */
+#endif /* !(WITH_GUI) */
 
 
 /*

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,7 +22,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -33,8 +33,8 @@
 #include "packer.h"
 
 
-#if 1 && defined(USE_SCREEN)
-#define UI_USE_SCREEN
+#if 1 && (USE_SCREEN)
+#define UI_USE_SCREEN 1
 #endif
 
 
@@ -47,7 +47,7 @@ enum {
 };
 
 
-struct UiPacker__State
+struct UiPacker::State
 {
     int mode;
 
@@ -67,8 +67,9 @@ struct UiPacker__State
     int bar_len;
     int pass_digits;        // number of digits needed to print total_passes
 
-#if defined(UI_USE_SCREEN)
+#if (UI_USE_SCREEN)
     screen_t *screen;
+    int screen_init_done;
     int b_cx, b_cy;
     int s_cx, s_cy;
     int s_fg, s_bg;
@@ -91,8 +92,6 @@ long UiPacker::update_c_len = 0;
 long UiPacker::update_u_len = 0;
 long UiPacker::update_fc_len = 0;
 long UiPacker::update_fu_len = 0;
-
-#define clear_cb()    memset(&cb, 0, sizeof(cb))
 
 
 /*************************************************************************
@@ -178,13 +177,13 @@ static const char *mkline(unsigned long fu_len, unsigned long fc_len,
 **************************************************************************/
 
 UiPacker::UiPacker(const Packer *p_) :
-    p(p_), s(NULL)
+    ui_pass(0), ui_total_passes(0), p(p_), s(NULL)
 {
     init_global_constants();
 
-    clear_cb();
+    cb.reset();
 
-    s = new UiPacker__State;
+    s = new State;
     memset(s,0,sizeof(*s));
     s->msg_buf[0] = '\r';
 
@@ -208,7 +207,7 @@ UiPacker::UiPacker(const Packer *p_) :
 
 UiPacker::~UiPacker()
 {
-    clear_cb();
+    cb.reset();
     delete s; s = NULL;
 }
 
@@ -239,14 +238,15 @@ void UiPacker::startCallback(unsigned u_len, unsigned step,
 
     s->pass = pass;
     s->total_passes = total_passes;
+    //printf("startCallback %d %d\n", s->pass, s->total_passes);
 
     s->bar_len = 64;
     s->pos = -2;
     s->spin_counter = 0;
-    s->bar_pos = 1;             // because of the leading `\r'
+    s->bar_pos = 1;             // because of the leading '\r'
     s->pass_digits = 0;
 
-    clear_cb();
+    cb.reset();
 
     if (s->pass < 0)            // no callback wanted
         return;
@@ -265,11 +265,11 @@ void UiPacker::startCallback(unsigned u_len, unsigned step,
     }
 
 #if (ACC_CC_MSC && (_MSC_VER == 1300))
-    cb.callback = &UiPacker::callback;
+    cb.nprogress = &UiPacker::progress_callback;
 #else
-    cb.callback = callback;
+    cb.nprogress = progress_callback;
 #endif
-    cb.user = this;
+    cb.user = this; // parameter for static function UiPacker::progress_callback()
 
     if (s->mode == M_CB_TERM)
     {
@@ -304,11 +304,12 @@ void UiPacker::startCallback(unsigned u_len, unsigned step,
         }
     }
 
-#if defined(UI_USE_SCREEN)
+#if (UI_USE_SCREEN)
     if (s->mode == M_CB_SCREEN)
     {
-        if (pass <= 1)
+        if (!s->screen_init_done)
         {
+            s->screen_init_done = 1;
             if (s->screen->hideCursor)
                 s->cursor_shape = s->screen->hideCursor(s->screen);
             s->s_fg = s->screen->getFg(s->screen);
@@ -346,10 +347,14 @@ void UiPacker::finalCallback(unsigned u_len, unsigned c_len)
 
 void UiPacker::endCallback()
 {
+    bool done = (s->total_passes <= 0 || s->pass >= s->total_passes);
+    endCallback(done);
+}
+
+void UiPacker::endCallback(bool done)
+{
     if (s->pass < 0)            // no callback wanted
         return;
-
-    const bool done = (s->total_passes <= 0 || s->pass >= s->total_passes);
 
     if (s->mode == M_CB_TERM)
     {
@@ -360,12 +365,14 @@ void UiPacker::endCallback()
     }
 
     // restore screen
-#if defined(UI_USE_SCREEN)
+#if (UI_USE_SCREEN)
     if (s->mode == M_CB_SCREEN)
     {
         if (done)
         {
             int cx, cy, sy;
+            assert(s->screen_init_done);
+            s->screen_init_done = 0;
             assert(s->s_cx == 0 && s->b_cx == 0);
             s->screen->getCursor(s->screen, &cx, &cy);
             sy = UPX_MAX(0, s->s_cy - s->scroll_up);
@@ -386,7 +393,7 @@ void UiPacker::endCallback()
     }
 #endif /* UI_USE_SCREEN */
 
-    clear_cb();
+    cb.reset();
 #if 0
     printf("callback: pass %d, step %6d, updates %6d\n",
            s->pass, s->step, s->spin_counter);
@@ -398,15 +405,11 @@ void UiPacker::endCallback()
 // the callback
 **************************************************************************/
 
-void __UPX_CDECL UiPacker::callback(upx_uint isize, upx_uint osize, int state, void *user)
+void __acc_cdecl UiPacker::progress_callback(upx_callback_p cb, unsigned isize, unsigned osize)
 {
     //printf("%6d %6d %d\n", isize, osize, state);
-    if (state != -1 && state != 3) return;
-    if (user)
-    {
-        UiPacker *uip = (UiPacker *) user;
-        uip->doCallback(isize, osize);
-    }
+    UiPacker *self = (UiPacker *) cb->user;
+    self->doCallback(isize, osize);
 }
 
 
@@ -428,11 +431,6 @@ void UiPacker::doCallback(unsigned isize, unsigned osize)
         s->next_update += s->step;
     }
 
-#if 0
-    printf("%6d %6d %6d %6d\n", isize, osize, s->step, s->next_update);
-    return;
-#endif
-
     // compute progress position
     int pos = -1;
     if (isize >= s->u_len)
@@ -442,6 +440,12 @@ void UiPacker::doCallback(unsigned isize, unsigned osize)
         pos = get_ratio(s->u_len, isize) * s->bar_len / 1000000;
         assert(pos >= 0); assert(pos <= s->bar_len);
     }
+
+#if 0
+    printf("%6d %6d %6d %6d %3d %3d\n", isize, osize, s->step, s->next_update, pos, s->pos);
+    return;
+#endif
+
     if (pos < s->pos)
         return;
     if (pos < 0 && pos == s->pos)
@@ -463,7 +467,7 @@ void UiPacker::doCallback(unsigned isize, unsigned osize)
     upx_snprintf(m, buflen, "  %3d.%1d%%  %c ",
                  ratio / 10000, (ratio % 10000) / 1000,
                  spinner[s->spin_counter & 3]);
-    assert((int)strlen(s->msg_buf) < 1 + 80);
+    assert(strlen(s->msg_buf) < 1 + 80);
 
     s->pos = pos;
     s->spin_counter++;
@@ -480,14 +484,14 @@ void UiPacker::doCallback(unsigned isize, unsigned osize)
         return;
     }
 
-#if defined(UI_USE_SCREEN)
+#if (UI_USE_SCREEN)
     if (s->mode == M_CB_SCREEN)
     {
         const char *msg = &s->msg_buf[1];
 #if 0
         s->screen->putString(s->screen,msg,s->b_cx,s->b_cy);
 #else
-        // FIXME: this doesn't honor `--mono' etc.
+        // FIXME: this doesn't honor '--mono' etc.
         int attr = FG_CYAN | s->s_bg;
         s->screen->putStringAttr(s->screen,msg,attr,s->b_cx,s->b_cy);
 #endif
@@ -510,7 +514,7 @@ void UiPacker::uiPackStart(const OutputFile *fo)
 
 void UiPacker::uiPackEnd(const OutputFile *fo)
 {
-    uiUpdate(fo->getBytesWritten());
+    uiUpdate(fo->st_size());
 
     if (s->mode == M_QUIET)
         return;
@@ -527,7 +531,7 @@ void UiPacker::uiPackEnd(const OutputFile *fo)
     else if (opt->to_stdout)
         name = "<stdout>";
     con_fprintf(stdout,"%s\n",
-                mkline(p->ph.u_file_size, fo->getBytesWritten(),
+                mkline(p->ph.u_file_size, fo->st_size(),
                        p->ph.u_len, p->ph.c_len,
                        p->getName(), fn_basename(name)));
     printSetNl(0);
@@ -669,7 +673,7 @@ bool UiPacker::uiFileInfoStart()
     total_files++;
 
     int fg = con_fg(stdout,FG_CYAN);
-    con_fprintf(stdout,"%s [%s]\n", p->fi->getName(), p->getName());
+    con_fprintf(stdout,"%s [%s, %s]\n", p->fi->getName(), p->getFullName(opt), p->getName());
     fg = con_fg(stdout,fg);
     UNUSED(fg);
     if (p->ph.c_len > 0)

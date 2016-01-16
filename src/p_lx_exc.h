@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,7 +22,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    John F. Reiser
    <jreiser@users.sourceforge.net>
@@ -30,7 +30,7 @@
 
 
 #ifndef __UPX_P_LX_EXC_H
-#define __UPX_P_LX_EXC_H
+#define __UPX_P_LX_EXC_H 1
 
 
 /*************************************************************************
@@ -41,7 +41,7 @@ class PackLinuxI386 : public PackUnixLe32
 {
     typedef PackUnixLe32 super;
 public:
-    PackLinuxI386(InputFile *f) : super(f) { }
+    PackLinuxI386(InputFile *f);
     virtual void generateElfHdr(
         OutputFile *,
         void const *proto,
@@ -49,9 +49,10 @@ public:
     );
     virtual int getFormat() const { return UPX_F_LINUX_i386; }
     virtual const char *getName() const { return "linux/386"; }
+    virtual const char *getFullName(const options_t *) const { return "i386-linux.elf.execve"; }
     virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
-    virtual int buildLoader(const Filter *);
+    virtual void buildLoader(const Filter *);
 
     virtual bool canPack();
 
@@ -62,8 +63,9 @@ protected:
     virtual void pack4(OutputFile *, Filter &);  // append PackHeader
 
     // loader util
+    virtual Linker* newLinker() const;
     virtual int getLoaderPrefixSize() const;
-    virtual int buildLinuxLoader(
+    virtual void buildLinuxLoader(
         upx_byte const *const proto,  // assembly-only sections
         unsigned const szproto,
         upx_byte const *const fold,  // linked assembly + C section
@@ -77,7 +79,7 @@ protected:
     virtual void updateLoader(OutputFile *);
 
     // ELF util
-    virtual int checkEhdr(const Elf32_Ehdr *ehdr) const;
+    virtual int checkEhdr(const Elf_LE32_Ehdr *ehdr) const;
 
     enum {
         UPX_ELF_MAGIC = 0x5850557f          // "\x7fUPX"
@@ -85,32 +87,62 @@ protected:
 
     unsigned n_mru;
 
-    struct cprElfHdr1 {
+    __packed_struct(cprElfHdr1)
         Elf_LE32_Ehdr ehdr;
         Elf_LE32_Phdr phdr[1];
         l_info linfo;
-    }
-    __attribute_packed;
+    __packed_struct_end()
 
-    struct cprElfHdr2 {
+    __packed_struct(cprElfHdr2)
         Elf_LE32_Ehdr ehdr;
         Elf_LE32_Phdr phdr[2];
         l_info linfo;
-    }
-    __attribute_packed;
+    __packed_struct_end()
 
-    struct cprElfHdr3 {
+    __packed_struct(cprElfHdr3)
         Elf_LE32_Ehdr ehdr;
         Elf_LE32_Phdr phdr[3];
         l_info linfo;
-    }
-    __attribute_packed;
+    __packed_struct_end()
 
     cprElfHdr3 elfout;
 
+    struct Elf32_Note {
+        unsigned namesz;  // 8
+        unsigned descsz;  // 4
+        unsigned type;    // 1
+        char text[0x18 - 4*4];  // "OpenBSD"
+        unsigned end;     // 0
+    } elfnote;
+
+    unsigned char ei_osabi;
+    char const *osabi_note;
+
+    static void compileTimeAssertions() {
+        COMPILE_TIME_ASSERT(sizeof(cprElfHdr1) == 52 + 1*32 + 12)
+        COMPILE_TIME_ASSERT(sizeof(cprElfHdr2) == 52 + 2*32 + 12)
+        COMPILE_TIME_ASSERT(sizeof(cprElfHdr3) == 52 + 3*32 + 12)
+        COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr1)
+        COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr2)
+        COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr3)
+    }
 };
 
 
+class PackBSDI386 : public PackLinuxI386
+{
+    typedef PackLinuxI386 super;
+public:
+    PackBSDI386(InputFile *f);
+    virtual int getFormat() const { return UPX_F_BSD_i386; }
+    virtual const char *getName() const { return "BSD/386"; }
+    virtual const char *getFullName(const options_t *) const { return "i386-bsd.elf.execve"; }
+
+protected:
+    virtual void pack1(OutputFile *, Filter &);  // generate executable header
+
+    virtual void buildLoader(const Filter *);
+};
 #endif /* already included */
 
 

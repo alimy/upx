@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,13 +21,13 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_P_EXE_H
-#define __UPX_P_EXE_H
+#define __UPX_P_EXE_H 1
 
 
 /*************************************************************************
@@ -42,6 +42,8 @@ public:
     virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_DOS_EXE; }
     virtual const char *getName() const { return "dos/exe"; }
+    //virtual const char *getFullName(const options_t *o) const { return o && o->cpu == o->CPU_8086 ? "i086-dos16.exe" : "i286-dos16.exe"; }
+    virtual const char *getFullName(const options_t *) const { return "i086-dos16.exe"; }
     virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
@@ -68,10 +70,11 @@ protected:
     virtual int readFileHeader(void);
 
     virtual int fillExeHeader(struct exe_header_t *) const;
-    virtual int buildLoader(const Filter *ft);
+    virtual void buildLoader(const Filter *ft);
+    virtual Linker* newLinker() const;
+    void addLoaderEpilogue(int flag);
 
-    struct exe_header_t
-    {
+    __packed_struct(exe_header_t)
         LE16 ident;
         LE16 m512;
         LE16 p512;
@@ -87,8 +90,7 @@ protected:
         LE16 relocoffs;
         char __[2];             // overlnum
         LE32 firstreloc;
-    }
-    __attribute_packed;
+    __packed_struct_end()
 
     exe_header_t ih, oh;
 
@@ -108,6 +110,9 @@ protected:
         MINMEM = 16,
         MAXMEM = 32
     };
+
+    unsigned stack_for_lzma;    // stack size required for lzma
+    bool use_clear_dirty_stack;
 };
 
 

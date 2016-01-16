@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,12 +22,12 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_UTIL_H
-#define __UPX_UTIL_H
+#define __UPX_UTIL_H 1
 
 
 /*************************************************************************
@@ -69,6 +69,7 @@ template <class T>
 inline int ptr_diff(const T *p1, const T *p2)
 {
     COMPILE_TIME_ASSERT(sizeof(T) == 1)
+    assert(p1 != NULL); assert(p2 != NULL);
     ptrdiff_t d = (const char*) p1 - (const char*) p2;
     assert((int)d == d);
     return (int) d;
@@ -76,6 +77,7 @@ inline int ptr_diff(const T *p1, const T *p2)
 #endif
 inline int ptr_diff(const void *p1, const void *p2)
 {
+    assert(p1 != NULL); assert(p2 != NULL);
     ptrdiff_t d = (const char*) p1 - (const char*) p2;
     assert((int)d == d);
     return (int) d;

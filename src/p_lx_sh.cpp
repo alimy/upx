@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2006 Laszlo Molnar
-   Copyright (C) 2000-2006 John F. Reiser
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2000-2010 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -23,7 +23,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    John F. Reiser
    <jreiser@users.sourceforge.net>
@@ -48,9 +48,9 @@
 **************************************************************************/
 
 static const
-#include "stub/l_lx_sh86.h"
+#include "stub/i386-linux.elf.shell-entry.h"
 static const
-#include "stub/fold_sh86.h"
+#include "stub/i386-linux.elf.shell-fold.h"
 
 
 PackLinuxI386sh::PackLinuxI386sh(InputFile *f) :
@@ -71,12 +71,12 @@ umax(unsigned a, unsigned b)
     return a;
 }
 
-int
+void
 PackLinuxI386sh::buildLoader(Filter const *ft)
 {
-    unsigned const sz_fold = sizeof(linux_i386sh_fold);
+    unsigned const sz_fold = sizeof(stub_i386_linux_elf_shell_fold);
     MemBuffer buf(sz_fold);
-    memcpy(buf, linux_i386sh_fold, sz_fold);
+    memcpy(buf, stub_i386_linux_elf_shell_fold, sz_fold);
 
     checkPatch(NULL, 0, 0, 0);  // reset
     patch_le32(buf,sz_fold,"UPX3",l_shname);
@@ -85,13 +85,13 @@ PackLinuxI386sh::buildLoader(Filter const *ft)
     // get fresh filter
     Filter fold_ft = *ft;
     fold_ft.init(ft->id, ft->addvalue);
-    int preferred_ctos[2] = {ft->cto, -1};
+    int preferred_ctos[2] = { ft->cto, -1 };
     fold_ft.preferred_ctos = preferred_ctos;
 
     // filter
     optimizeFilter(&fold_ft, buf, sz_fold);
     unsigned fold_hdrlen = sizeof(l_info) + sizeof(Elf32_Ehdr) +
-        sizeof(Elf32_Phdr) * get_native32(&((Elf32_Ehdr const *)(void *)buf)->e_phnum);
+        sizeof(Elf32_Phdr) * get_te32(&((Elf32_Ehdr const *)(void *)buf)->e_phnum);
     if (0 == get_le32(fold_hdrlen + buf)) {
         // inconsistent SIZEOF_HEADERS in *.lds (ld, binutils)
         fold_hdrlen = umax(0x80, fold_hdrlen);
@@ -99,8 +99,8 @@ PackLinuxI386sh::buildLoader(Filter const *ft)
     bool success = fold_ft.filter(buf + fold_hdrlen, sz_fold - fold_hdrlen);
     UNUSED(success);
 
-    return buildLinuxLoader(
-        linux_i386sh_loader, sizeof(linux_i386sh_loader),
+    buildLinuxLoader(
+        stub_i386_linux_elf_shell_entry, sizeof(stub_i386_linux_elf_shell_entry),
         buf, sz_fold, ft );
 }
 
@@ -158,7 +158,7 @@ bool PackLinuxI386sh::canPack()
 void
 PackLinuxI386sh::pack1(OutputFile *fo, Filter &)
 {
-    generateElfHdr(fo, linux_i386sh_fold, 0x08048000);
+    generateElfHdr(fo, stub_i386_linux_elf_shell_fold, 0x08048000);
 }
 
 void

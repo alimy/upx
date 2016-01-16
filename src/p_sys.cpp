@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -32,9 +32,10 @@
 #include "packer.h"
 #include "p_com.h"
 #include "p_sys.h"
+#include "linker.h"
 
 static const
-#include "stub/l_sys.h"
+#include "stub/i086-dos16.sys.h"
 
 
 /*************************************************************************
@@ -67,34 +68,31 @@ void PackSys::patchLoader(OutputFile *fo,
                           upx_byte *loader, int lsize,
                           unsigned calls)
 {
-    const int filter_id = ph.filter;
     const int e_len = getLoaderSectionStart("SYSCUTPO");
     const int d_len = lsize - e_len;
-    assert(e_len > 0 && e_len < 256);
+    assert(e_len > 0 && e_len < 128);
     assert(d_len > 0 && d_len < 256);
 
     if (ph.u_len + d_len + ph.overlap_overhead > 0xfffe)
         throwNotCompressible();
 
-    memcpy(loader,ibuf,6);              // copy from orig. header
-    memcpy(loader+8,ibuf+8,2);          // opendos wants this word too
+    // use some fields of the original file
+    linker->defineSymbol("attribute", get_le16(ibuf + 4));
+    linker->defineSymbol("interrupt", get_le16(ibuf + 8));
 
     unsigned copy_to = ph.u_len + d_len + ph.overlap_overhead;
 
-    patch_le16(loader,lsize,"JO",get_le16(ibuf+6)-copy_to-1);
-    if (filter_id)
-    {
-        assert(calls > 0);
-        patch_le16(loader,lsize,"CT",calls);
-    }
+    linker->defineSymbol("calltrick_calls", calls);
+    linker->defineSymbol("copy_source", ph.c_len + lsize - 1);
+    linker->defineSymbol("copy_destination", copy_to);
+    linker->defineSymbol("neg_e_len", 0 - e_len);
+    linker->defineSymbol("NRV2B160", ph.u_len + ph.overlap_overhead + 1);
+    linker->defineSymbol("original_strategy", get_le16(ibuf + 6));
+
+    relocateLoader();
+    loader = getLoader();
+
     patchPackHeader(loader,e_len);
-
-    const unsigned jmp_pos = find_le16(loader,e_len,get_le16("JM"));
-    patch_le16(loader,e_len,"JM",ph.u_len+ph.overlap_overhead+2-jmp_pos-2);
-    loader[getLoaderSectionStart("SYSSUBSI") - 1] = (upx_byte) -e_len;
-    patch_le16(loader,e_len,"DI",copy_to);
-    patch_le16(loader,e_len,"SI",ph.c_len+e_len+d_len-1);
-
     // write loader + compressed file
     fo->write(loader,e_len);            // entry
     fo->write(obuf,ph.c_len);
@@ -102,17 +100,17 @@ void PackSys::patchLoader(OutputFile *fo,
 }
 
 
-int PackSys::buildLoader(const Filter *ft)
+void PackSys::buildLoader(const Filter *ft)
 {
-    initLoader(nrv2b_loader,sizeof(nrv2b_loader));
+    initLoader(stub_i086_dos16_sys, sizeof(stub_i086_dos16_sys));
     addLoader("SYSMAIN1",
               opt->cpu == opt->CPU_8086 ? "SYSI0861" : "SYSI2861",
-              "SYSMAIN2,SYSSUBSI",
+              "SYSMAIN2",
               ph.first_offset_found == 1 ? "SYSSBBBP" : "",
               ft->id ? "SYSCALLT" : "",
               "SYSMAIN3,UPX1HEAD,SYSCUTPO,NRV2B160,NRVDDONE,NRVDECO1",
               ph.max_offset_found <= 0xd00 ? "NRVLED00" : "NRVGTD00",
-              "NRVDECO2,NRV2B169",
+              "NRVDECO2",
               NULL
              );
     if (ft->id)
@@ -125,7 +123,6 @@ int PackSys::buildLoader(const Filter *ft)
               "SYSJUMP1",
               NULL
              );
-    return getLoaderSize();
 }
 
 

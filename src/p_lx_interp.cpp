@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2006 Laszlo Molnar
-   Copyright (C) 2000-2006 John F. Reiser
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2000-2010 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -23,7 +23,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    John F. Reiser
    <jreiser@users.sourceforge.net>
@@ -51,9 +51,9 @@
 **************************************************************************/
 
 static const
-#include "stub/l_lx_pti86.h"
+#include "stub/i386-linux.elf.interp-entry.h"
 static const
-#include "stub/fold_pti86.h"
+#include "stub/i386-linux.elf.interp-fold.h"
 
 PackLinuxElf32x86interp::PackLinuxElf32x86interp(InputFile *f) :
     super(f)
@@ -147,26 +147,26 @@ void PackLinuxElf32x86interp::pack3(OutputFile *fo, Filter &/*ft*/)
     }
     elfout.phdr[0].p_paddr = elfout.phdr[0].p_vaddr = base - sz;
     if (opt->o_unix.make_ptinterp) {
-        initLoader(linux_i386pti_loader, sizeof(linux_i386pti_loader));
-        linker->addSection("FOLDEXEC", linux_i386pti_fold, sizeof(linux_i386pti_fold));
+        initLoader(stub_i386_linux_elf_interp_entry, sizeof(stub_i386_linux_elf_interp_entry));
+        linker->addSection("FOLDEXEC", stub_i386_linux_elf_interp_fold, sizeof(stub_i386_linux_elf_interp_fold), 0);
 
         addLoader("LXPTI000", NULL);
 
         addLoader("LXPTI040", NULL);
-        ph.method = M_NRV2B_LE32; addLoader(getDecompressor(), NULL);
+        ph.method = M_NRV2B_LE32; addLoader(getDecompressorSections(), NULL);
         addLoader("LXPTI090", NULL);
 
         addLoader("LXPTI041", NULL);
-        ph.method = M_NRV2D_LE32; addLoader(getDecompressor(), NULL);
+        ph.method = M_NRV2D_LE32; addLoader(getDecompressorSections(), NULL);
         addLoader("LXPTI090", NULL);
 
         addLoader("LXPTI042", NULL);
-        ph.method = M_NRV2E_LE32; addLoader(getDecompressor(), NULL);
+        ph.method = M_NRV2E_LE32; addLoader(getDecompressorSections(), NULL);
         addLoader("LXPTI090", NULL);
 
-        addLoader("LXPTI043", NULL);
-        ph.method = M_CL1B_LE32;  addLoader(getDecompressor(), NULL);
-        addLoader("LXPTI090", NULL);
+        //addLoader("LXPTI043", NULL);
+        //ph.method = M_CL1B_LE32;  addLoader(getDecompressorSections(), NULL);
+        //addLoader("LXPTI090", NULL);
 
         addLoader("LXPTI091", NULL);
 
@@ -197,15 +197,18 @@ void PackLinuxElf32x86interp::pack3(OutputFile *fo, Filter &/*ft*/)
 void PackLinuxElf32x86interp::unpack(OutputFile *fo)
 {
 #define MAX_INTERP_HDR 512
-    char bufehdr[MAX_INTERP_HDR];
-    Elf32_Ehdr *const ehdr = (Elf32_Ehdr *)bufehdr;
-    Elf32_Phdr const *phdr = (Elf32_Phdr *)(1+ehdr);
+    union {
+        unsigned char buf[MAX_INTERP_HDR];
+        //struct { Elf32_Ehdr ehdr; Elf32_Phdr phdr; } e;
+    } u;
+    Elf32_Ehdr *const ehdr = (Elf32_Ehdr *) u.buf;
+    Elf32_Phdr const *phdr = (Elf32_Phdr *) (u.buf + sizeof(*ehdr));
 
     unsigned szb_info = sizeof(b_info);
     {
         fi->seek(0, SEEK_SET);
-        fi->readx(bufehdr, MAX_INTERP_HDR);
-        unsigned const e_entry = get_native32(&ehdr->e_entry);
+        fi->readx(u.buf, MAX_INTERP_HDR);
+        unsigned const e_entry = get_te32(&ehdr->e_entry);
         if (e_entry < 0x401180) { /* old style, 8-byte b_info */
             szb_info = 2*sizeof(unsigned);
         }
@@ -214,16 +217,16 @@ void PackLinuxElf32x86interp::unpack(OutputFile *fo)
     fi->seek(overlay_offset, SEEK_SET);
     p_info hbuf;
     fi->readx(&hbuf, sizeof(hbuf));
-    unsigned orig_file_size = get_native32(&hbuf.p_filesize);
-    blocksize = get_native32(&hbuf.p_blocksize);
+    unsigned orig_file_size = get_te32(&hbuf.p_filesize);
+    blocksize = get_te32(&hbuf.p_blocksize);
     if (file_size > (off_t)orig_file_size || blocksize > orig_file_size)
         throwCantUnpack("file header corrupted");
 
     ibuf.alloc(blocksize + OVERHEAD);
     b_info bhdr; memset(&bhdr, 0, sizeof(bhdr));
     fi->readx(&bhdr, szb_info);
-    ph.u_len = get_native32(&bhdr.sz_unc);
-    ph.c_len = get_native32(&bhdr.sz_cpr);
+    ph.u_len = get_te32(&bhdr.sz_unc);
+    ph.c_len = get_te32(&bhdr.sz_cpr);
     ph.filter_cto = bhdr.b_cto8;
 
     // Uncompress Ehdr and Phdrs.
@@ -277,7 +280,7 @@ void PackLinuxElf32x86interp::unpack(OutputFile *fo)
 
     // check for end-of-file
     fi->readx(&bhdr, szb_info);
-    unsigned const sz_unc = ph.u_len = get_native32(&bhdr.sz_unc);
+    unsigned const sz_unc = ph.u_len = get_te32(&bhdr.sz_unc);
 
     if (sz_unc == 0) { // uncompressed size 0 -> EOF
         // note: magic is always stored le32

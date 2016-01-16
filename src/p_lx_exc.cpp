@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2006 Laszlo Molnar
-   Copyright (C) 2001-2006 John F. Reiser
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2001-2010 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -23,7 +23,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    John F. Reiser
    <jreiser@users.sourceforge.net>
@@ -54,10 +54,35 @@
 // linux/386 (generic "execve" format)
 **************************************************************************/
 
+PackLinuxI386::PackLinuxI386(InputFile *f) : super(f),
+    ei_osabi(Elf32_Ehdr::ELFOSABI_LINUX), osabi_note(NULL)
+{
+    bele = &N_BELE_RTP::le_policy;
+}
+
+PackBSDI386::PackBSDI386(InputFile *f) : super(f)
+{
+    // Shell scripts need help specifying the target operating system.
+    // Elf input will override this with .e_ident[EI_OSABI] or PT_NOTE.
+    // [2006-09-27: Today's only runtime stub for shell is for linux.]
+    if (Elf32_Ehdr::ELFOSABI_LINUX==opt->o_unix.osabi0) {
+        // Disallow an incompatibility.
+        ei_osabi = Elf32_Ehdr::ELFOSABI_NONE;
+    }
+    else {
+        ei_osabi = opt->o_unix.osabi0;  // might be ELFOSABI_NONE
+    }
+}
+
 static const
-#include "stub/l_lx_exec86.h"
+#include "stub/i386-linux.elf.execve-entry.h"
 static const
-#include "stub/fold_exec86.h"
+#include "stub/i386-linux.elf.execve-fold.h"
+
+static const
+#include "stub/i386-bsd.elf.execve-entry.h"
+static const
+#include "stub/i386-bsd.elf.execve-fold.h"
 
 
 const int *PackLinuxI386::getCompressionMethods(int method, int level) const
@@ -69,18 +94,13 @@ const int *PackLinuxI386::getFilters() const
 {
     static const int filters[] = {
         0x49, 0x46,
-// FIXME 2002-11-11: We use stub/fold_exec86.asm, which calls the
-// decompressor multiple times, and unfilter is independent of decompress.
-// Currently only filters 0x49, 0x46, 0x80..0x87 can handle this;
-// and 0x80..0x87 are regarded as "untested".
-#if 0
         0x26, 0x24, 0x11, 0x14, 0x13, 0x16, 0x25, 0x15, 0x12,
-#endif
 #if 0
+// 0x80..0x87 are regarded as "untested".
         0x83, 0x86, 0x80, 0x84, 0x87, 0x81, 0x82, 0x85,
         0x24, 0x16, 0x13, 0x14, 0x11, 0x25, 0x15, 0x12,
 #endif
-    -1 };
+    FT_END };
     return filters;
 }
 
@@ -112,8 +132,8 @@ PackLinuxI386::generateElfHdr(
     unsigned const brka
 )
 {
-    cprElfHdr2 *const h2 = (cprElfHdr2 *)&elfout;
-    cprElfHdr3 *const h3 = (cprElfHdr3 *)&elfout;
+    cprElfHdr2 *const h2 = (cprElfHdr2 *)(void *)&elfout;
+    cprElfHdr3 *const h3 = (cprElfHdr3 *)(void *)&elfout;
     memcpy(h3, proto, sizeof(*h3));  // reads beyond, but OK
 
     assert(h2->ehdr.e_phoff     == sizeof(Elf32_Ehdr));
@@ -135,7 +155,9 @@ PackLinuxI386::generateElfHdr(
     }
 
     if (ph.format==UPX_F_LINUX_i386
-    ||  ph.format==UPX_F_LINUX_SH_i386 ) {
+    ||  ph.format==UPX_F_LINUX_SH_i386
+    ||  ph.format==UPX_F_BSD_i386
+    ) {
         // SELinux, PAx, grSecurity demand no PF_W if PF_X.
         // kernel-2.6.12-2.3.legacy_FC3 has a bug which demands
         // a PT_LOAD with PF_W, else SIGSEGV when clearing page fragment
@@ -161,7 +183,16 @@ PackLinuxI386::pack1(OutputFile *fo, Filter &)
     // create a pseudo-unique program id for our paranoid stub
     progid = getRandomId();
 
-    generateElfHdr(fo, linux_i386exec_fold, 0);
+    generateElfHdr(fo, stub_i386_linux_elf_execve_fold, 0);
+}
+
+void
+PackBSDI386::pack1(OutputFile *fo, Filter &)
+{
+    // create a pseudo-unique program id for our paranoid stub
+    progid = getRandomId();
+
+    generateElfHdr(fo, stub_i386_bsd_elf_execve_fold, 0);
 }
 
 void
@@ -173,7 +204,7 @@ PackLinuxI386::pack4(OutputFile *fo, Filter &ft)
         ((elfout.ehdr.e_phnum==3) ? (unsigned) elfout.phdr[2].p_memsz : 0) ;
     unsigned nw = fo->getBytesWritten();
     elfout.phdr[0].p_filesz = nw;
-    nw = -(-elfout.phdr[0].p_align & -nw);  // ALIGN_UP
+    nw = 0u-((0u-elfout.phdr[0].p_align) & (0u-nw));  // ALIGN_UP
     super::pack4(fo, ft);  // write PackHeader and overlay_offset
     set_stub_brk(&elfout.phdr[1], nw + elfout.phdr[0].p_vaddr);
 
@@ -192,38 +223,38 @@ PackLinuxI386::pack4(OutputFile *fo, Filter &ft)
 
     // Supply a "linking view" that covers everything,
     // so that 'strip' does not omit everything.
-    Elf32_Shdr shdr;
+    Elf_LE32_Shdr shdr;
     // The section header string table.
     char const shstrtab[] = "\0.\0.shstrtab";
 
     unsigned eod = elfout.phdr[0].p_filesz;
-    set_native32(&elfout.ehdr.e_shoff, eod);
-    set_native16(&elfout.ehdr.e_shentsize, sizeof(shdr));
-    set_native16(&elfout.ehdr.e_shnum, 3);
-    set_native16(&elfout.ehdr.e_shstrndx, 2);
+    elfout.ehdr.e_shoff = eod;
+    elfout.ehdr.e_shentsize = sizeof(shdr);
+    elfout.ehdr.e_shnum = 3;
+    elfout.ehdr.e_shstrndx = 2;
 
     // An empty Elf32_Shdr for space as a null index.
     memset(&shdr, 0, sizeof(shdr));
-    set_native32(&shdr.sh_type, Elf32_Shdr::SHT_NULL);
+    shdr.sh_type = Elf32_Shdr::SHT_NULL;
     fo->write(&shdr, sizeof(shdr));
 
     // Cover all the bits we need at runtime.
     memset(&shdr, 0, sizeof(shdr));
-    set_native32(&shdr.sh_name, 1);
-    set_native32(&shdr.sh_type, Elf32_Shdr::SHT_PROGBITS);
-    set_native32(&shdr.sh_flags, Elf32_Shdr::SHF_ALLOC);
-    set_native32(&shdr.sh_addr, elfout.phdr[0].p_vaddr);
-    set_native32(&shdr.sh_offset, overlay_offset);
-    set_native32(&shdr.sh_size, eod - overlay_offset);
-    set_native32(&shdr.sh_addralign, 4096);
+    shdr.sh_name = 1;
+    shdr.sh_type = Elf32_Shdr::SHT_PROGBITS;
+    shdr.sh_flags = Elf32_Shdr::SHF_ALLOC;
+    shdr.sh_addr = elfout.phdr[0].p_vaddr;
+    shdr.sh_offset = overlay_offset;
+    shdr.sh_size = eod - overlay_offset;
+    shdr.sh_addralign = 4096;
     fo->write(&shdr, sizeof(shdr));
 
     // A section header for the section header string table.
     memset(&shdr, 0, sizeof(shdr));
-    set_native32(&shdr.sh_name, 3);
-    set_native32(&shdr.sh_type, Elf32_Shdr::SHT_STRTAB);
-    set_native32(&shdr.sh_offset, 3*sizeof(shdr) + eod);
-    set_native32(&shdr.sh_size, sizeof(shstrtab));
+    shdr.sh_name = 3;
+    shdr.sh_type = Elf32_Shdr::SHT_STRTAB;
+    shdr.sh_offset = 3*sizeof(shdr) + eod;
+    shdr.sh_size = sizeof(shstrtab);
     fo->write(&shdr, sizeof(shdr));
 
     fo->write(shstrtab, sizeof(shstrtab));
@@ -257,7 +288,12 @@ umax(unsigned a, unsigned b)
     return a;
 }
 
-int
+Linker *PackLinuxI386::newLinker() const
+{
+    return new ElfLinkerX86;
+}
+
+void
 PackLinuxI386::buildLinuxLoader(
     upx_byte const *const proto,
     unsigned        const szproto,
@@ -268,7 +304,6 @@ PackLinuxI386::buildLinuxLoader(
 {
     initLoader(proto, szproto);
 
-    struct b_info h; memset(&h, 0, sizeof(h));
     unsigned fold_hdrlen = 0;
   if (0 < szfold) {
     cprElfHdr1 const *const hf = (cprElfHdr1 const *)fold;
@@ -278,40 +313,29 @@ PackLinuxI386::buildLinuxLoader(
         // inconsistent SIZEOF_HEADERS in *.lds (ld, binutils)
         fold_hdrlen = umax(0x80, fold_hdrlen);
     }
-    h.sz_unc = (szfold < fold_hdrlen) ? 0 : (szfold - fold_hdrlen);
-    h.b_method = (unsigned char) ph.method;
-    h.b_ftid = (unsigned char) ph.filter;
-    h.b_cto8 = (unsigned char) ph.filter_cto;
-  }
-    unsigned char const *const uncLoader = fold_hdrlen + fold;
-
-    unsigned char *const cprLoader = new unsigned char[h.sz_unc];
-  if (0 < szfold) {
-    unsigned sz_cpr = h.sz_unc;
-    memcpy(cprLoader, uncLoader, sz_cpr);
-    h.sz_cpr = sz_cpr;
   }
     // This adds the definition to the "library", to be used later.
-    linker->addSection("FOLDEXEC", cprLoader, h.sz_cpr);
-    delete [] cprLoader;
+    // NOTE: the stub is NOT compressed!  The savings is not worth it.
+    linker->addSection("FOLDEXEC", fold + fold_hdrlen, szfold - fold_hdrlen, 0);
 
     n_mru = ft->n_mru;
 
-    // Here is a quick summary of the format of the output file:
-    linker->setLoaderAlignOffset(
-            // Elf32_Edhr
-        sizeof(elfout.ehdr) +
-            // Elf32_Phdr: 1 for exec86, 2 for sh86, 3 for elf86
-        (elfout.ehdr.e_phentsize * elfout.ehdr.e_phnum) +
-            // checksum UPX! lsize version format
-        sizeof(l_info) +
-            // PT_DYNAMIC with DT_NEEDED "forwarded" from original file
-        ((elfout.ehdr.e_phnum==3) ? (unsigned) elfout.phdr[2].p_memsz : 0) +
-            // p_progid, p_filesize, p_blocksize
-        sizeof(p_info) +
-            // compressed data
-        b_len + ph.c_len );
-            // entry to stub
+// Rely on "+80CXXXX" [etc] in getDecompressorSections() packer_c.cpp */
+//    // Here is a quick summary of the format of the output file:
+//    linker->setLoaderAlignOffset(
+//            // Elf32_Edhr
+//        sizeof(elfout.ehdr) +
+//            // Elf32_Phdr: 1 for exec86, 2 for sh86, 3 for elf86
+//        (elfout.ehdr.e_phentsize * elfout.ehdr.e_phnum) +
+//            // checksum UPX! lsize version format
+//        sizeof(l_info) +
+//            // PT_DYNAMIC with DT_NEEDED "forwarded" from original file
+//        ((elfout.ehdr.e_phnum==3) ? (unsigned) elfout.phdr[2].p_memsz : 0) +
+//            // p_progid, p_filesize, p_blocksize
+//        sizeof(p_info) +
+//            // compressed data
+//        b_len + ph.c_len );
+//            // entry to stub
     addLoader("LEXEC000", NULL);
 
     if (ft->id) {
@@ -320,7 +344,11 @@ PackLinuxI386::buildLinuxLoader(
         }
     }
     addLoader("LEXEC010", NULL);
-    addLoader(getDecompressor(), NULL);
+    linker->defineSymbol("filter_cto", ft->cto);
+    linker->defineSymbol("filter_length",
+                         (ft->id & 0xf) % 3 == 0 ? ft->calls :
+                         ft->lastcall - ft->calls * 4);
+    addLoader(getDecompressorSections(), NULL);
     addLoader("LEXEC015", NULL);
     if (ft->id) {
         {  // decompr, unfilter not separate
@@ -345,25 +373,37 @@ PackLinuxI386::buildLinuxLoader(
     addLoader("IDENTSTR", NULL);
     addLoader("LEXEC020", NULL);
     addLoader("FOLDEXEC", NULL);
-
-    char *ptr_cto = (char *)const_cast<unsigned char *>(getLoader());
-    int sz_cto = getLoaderSize();
-    if (0x20==(ft->id & 0xF0) || 0x30==(ft->id & 0xF0)) {  // push byte '?'  ; cto8
-        patch_le16(ptr_cto, sz_cto, "\x6a?", 0x6a + (ft->cto << 8));
-        checkPatch(NULL, 0, 0, 0);  // reset
+    if (M_IS_LZMA(ph.method)) {
+        const lzma_compress_result_t *res = &ph.compress_result.result_lzma;
+        acc_uint32e_t properties = // lc, lp, pb, dummy
+            (res->lit_context_bits << 0) |
+            (res->lit_pos_bits << 8) |
+            (res->pos_bits << 16);
+        if (linker->bele->isBE()) // big endian - bswap32
+            acc_swab32s(&properties);
+        linker->defineSymbol("lzma_properties", properties);
+        // -2 for properties
+        linker->defineSymbol("lzma_c_len", ph.c_len - 2);
+        linker->defineSymbol("lzma_u_len", ph.u_len);
+        unsigned const stack = getDecompressorWrkmemSize();
+        linker->defineSymbol("lzma_stack_adjust", 0u - stack);
     }
-    // PackHeader and overlay_offset at the end of the output file,
-    // after the compressed data.
-
-    return getLoaderSize();
+    if (0x80==(ft->id & 0xF0)) {
+        int const mru = ft->n_mru ? 1+ ft->n_mru : 0;
+        if (mru && mru!=256) {
+            unsigned const is_pwr2 = (0==((mru -1) & mru));
+            linker->defineSymbol("NMRU", mru - is_pwr2);
+        }
+    }
+    relocateLoader();
 }
 
-int
+void
 PackLinuxI386::buildLoader(Filter const *ft)
 {
-    unsigned const sz_fold = sizeof(linux_i386exec_fold);
+    unsigned const sz_fold = sizeof(stub_i386_linux_elf_execve_fold);
     MemBuffer buf(sz_fold);
-    memcpy(buf, linux_i386exec_fold, sz_fold);
+    memcpy(buf, stub_i386_linux_elf_execve_fold, sz_fold);
 
     // patch loader
     // note: we only can use /proc/<pid>/fd when exetype > 0.
@@ -373,8 +413,28 @@ PackLinuxI386::buildLoader(Filter const *ft)
     patch_le32(buf,sz_fold,"UPX3",progid);
     patch_le32(buf,sz_fold,"UPX2",exetype > 0 ? 0 : 0x7fffffff);
 
-    return buildLinuxLoader(
-        linux_i386exec_loader, sizeof(linux_i386exec_loader),
+    buildLinuxLoader(
+        stub_i386_linux_elf_execve_entry, sizeof(stub_i386_linux_elf_execve_entry),
+        buf, sz_fold, ft );
+}
+
+void
+PackBSDI386::buildLoader(Filter const *ft)
+{
+    unsigned const sz_fold = sizeof(stub_i386_bsd_elf_execve_fold);
+    MemBuffer buf(sz_fold);
+    memcpy(buf, stub_i386_bsd_elf_execve_fold, sz_fold);
+
+    // patch loader
+    // note: we only can use /proc/<pid>/fd when exetype > 0.
+    //   also, we sleep much longer when compressing a script.
+    checkPatch(NULL, 0, 0, 0);  // reset
+    patch_le32(buf,sz_fold,"UPX4",exetype > 0 ? 3 : 15);   // sleep time
+    patch_le32(buf,sz_fold,"UPX3",progid);
+    patch_le32(buf,sz_fold,"UPX2",exetype > 0 ? 0 : 0x7fffffff);
+
+    buildLinuxLoader(
+        stub_i386_bsd_elf_execve_entry, sizeof(stub_i386_bsd_elf_execve_entry),
         buf, sz_fold, ft );
 }
 
@@ -390,7 +450,7 @@ int PackLinuxI386::getLoaderPrefixSize() const
 **************************************************************************/
 
 // basic check of an Linux ELF Ehdr
-int PackLinuxI386::checkEhdr(const Elf32_Ehdr *ehdr) const
+int PackLinuxI386::checkEhdr(const Elf_LE32_Ehdr *ehdr) const
 {
     const unsigned char * const buf = ehdr->e_ident;
 
@@ -440,9 +500,10 @@ bool PackLinuxI386::canPack()
     if (exetype != 0)
         return super::canPack();
 
-    Elf32_Ehdr ehdr;
+    Elf_LE32_Ehdr ehdr;
     unsigned char *buf = ehdr.e_ident;
 
+    fi->seek(0, SEEK_SET);
     fi->readx(&ehdr, sizeof(ehdr));
     fi->seek(0, SEEK_SET);
 
@@ -450,12 +511,61 @@ bool PackLinuxI386::canPack()
     const unsigned l = get_le32(buf);
 
     int elf = checkEhdr(&ehdr);
-    if (elf >= 0)
-    {
+    if (elf >= 0) {
         // NOTE: ELF executables are now handled by p_lx_elf.cpp,
         //   so we only handle them here if force_execve
-        if (elf == 0 && opt->o_unix.force_execve)
+        if (elf == 0 && opt->o_unix.force_execve) {
             exetype = 1;
+
+            unsigned osabi0 = ehdr.e_ident[Elf32_Ehdr::EI_OSABI];
+            switch (osabi0) {
+            case Elf32_Ehdr::ELFOSABI_LINUX:
+            case Elf32_Ehdr::ELFOSABI_FREEBSD:
+            case Elf32_Ehdr::ELFOSABI_NETBSD:
+            case Elf32_Ehdr::ELFOSABI_OPENBSD:
+                ei_osabi = osabi0;  // Proudly declares its osabi in Ehdr.
+                break;
+            default:
+            unsigned const e_phnum = get_te16(&ehdr.e_phnum);
+            if (e_phnum<=(512/sizeof(Elf32_Phdr))) {
+                union {
+                    unsigned char buf2[512];
+                    //Elf32_Phdr phdr;
+                } u;
+                fi->seek(get_te32(&ehdr.e_phoff), SEEK_SET);
+                fi->readx(u.buf2, sizeof(u.buf2));
+                fi->seek(0, SEEK_SET);
+                Elf32_Phdr const *phdr = (Elf32_Phdr *) u.buf2;
+                for (unsigned j=0; j < e_phnum; ++phdr, ++j) {
+                    if (phdr->PT_NOTE == get_te32(&phdr->p_type)) {
+                        unsigned const offset = get_te32(&phdr->p_offset);
+                        struct Elf32_Note note; memset(&note, 0, sizeof(note));
+                        fi->seek(offset, SEEK_SET);
+                        fi->readx(&note, sizeof(note));
+                        fi->seek(0, SEEK_SET);
+                        if (4==get_te32(&note.descsz)
+                        &&  1==get_te32(&note.type)
+                        &&  0==note.end ) {
+                            if (0==strcmp("NetBSD", (char const *)note.text)) {
+                                ei_osabi = Elf32_Ehdr::ELFOSABI_NETBSD;
+                                break;
+                            }
+                            if (0==strcmp("OpenBSD", (char const *)note.text)) {
+                                ei_osabi = Elf32_Ehdr::ELFOSABI_OPENBSD;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            }
+        }
+        if (UPX_F_BSD_i386==getFormat()
+        && !(Elf32_Ehdr::ELFOSABI_FREEBSD==ei_osabi
+          || Elf32_Ehdr::ELFOSABI_NETBSD ==ei_osabi
+          || Elf32_Ehdr::ELFOSABI_OPENBSD==ei_osabi )) {
+            return false;
+        }
     }
     else if (l == 0x00640107 || l == 0x00640108 || l == 0x0064010b || l == 0x006400cc)
     {
@@ -464,15 +574,17 @@ bool PackLinuxI386::canPack()
         // FIXME: N_TRSIZE, N_DRSIZE
         // FIXME: check for aout shared libraries
     }
-#if defined(__linux__)
-    // only compress scripts when running under Linux
-    else if (!memcmp(buf, "#!/", 3))                    // #!/bin/sh
-        exetype = -1;
-    else if (!memcmp(buf, "#! /", 4))                   // #! /bin/sh
-        exetype = -1;
-    else if (!memcmp(buf, "\xca\xfe\xba\xbe", 4))       // Java bytecode
-        exetype = -2;
-#endif
+    else { // shell scripts and other interpreters
+        if (Elf32_Ehdr::ELFOSABI_LINUX!=ei_osabi) {
+            return false;  // so far, only Linux has runtime stub for shell
+        }
+        else if (!memcmp(buf, "#!/", 3))                    // #!/bin/sh
+            exetype = -1;
+        else if (!memcmp(buf, "#! /", 4))                   // #! /bin/sh
+            exetype = -1;
+        else if (!memcmp(buf, "\xca\xfe\xba\xbe", 4))       // Java bytecode
+            exetype = -2;
+    }
 
     return super::canPack();
 }
@@ -483,7 +595,7 @@ void PackLinuxI386::patchLoader() { }
 
 void PackLinuxI386::patchLoaderChecksum()
 {
-    unsigned char *const ptr = const_cast<unsigned char *>(getLoader());
+    unsigned char *const ptr = getLoader();
     l_info *const lp = (l_info *)(sizeof(elfout.ehdr) +
         (elfout.ehdr.e_phnum * elfout.ehdr.e_phentsize) + (char *)&elfout );
     // checksum for loader + p_info

@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
-   Copyright (C) 2000-2004 John F. Reiser
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2000-2010 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -23,7 +23,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    John F. Reiser
    <jreiser@users.sourceforge.net>
@@ -52,16 +52,24 @@ static int F(Filter *f)
     unsigned calls = 0, noncalls = 0, noncalls2 = 0;
     unsigned lastnoncall = size, lastcall = 0;
 
-    // find a 16MB large empty address space
+    // find a 16 MiB large empty address space
     {
         unsigned char buf[256];
         memset(buf,0,256);
 
         for (ic = 0; ic < size - 5; ic++)
-            if (COND(b,ic,lastcall,id) && get_le32(b+ic+1)+ic+1 >= size)
+        {
+            if (!COND(b,ic,lastcall,id))
+                continue;
+            jc = get_le32(b+ic+1)+ic+1;
+            if (jc < size)
             {
-                buf[b[ic+1]] |= 1;
+                if (jc + addvalue >= (1u << 24)) // hi 8 bits won't be cto8
+                    return -1;
             }
+            else
+                buf[b[ic+1]] |= 1;
+        }
 
         if (getcto(f, buf) < 0)
             return -1;
@@ -79,8 +87,7 @@ static int F(Filter *f)
         // try to detect 'real' calls only
         if (jc < size)
         {
-            if ((1u<<24)<=(jc+addvalue))  // hi 8 bits won't be cto8
-                return 1;  // fail - buffer not restored
+            assert(jc + addvalue < (1u << 24)); // hi 8 bits won't be cto8
 #ifdef U
             set_be32(b+ic+1,jc+addvalue+cto);
 #endif
@@ -119,7 +126,7 @@ static int F(Filter *f)
     f->noncalls = noncalls;
     f->lastcall = lastcall;
 
-#ifdef TESTING
+#if 0 || defined(TESTING)
     printf("\ncalls=%d noncalls=%d noncalls2=%d text_size=%x calltrickoffset=%x\n",calls,noncalls,noncalls2,size,cto);
 #endif
     return 0;

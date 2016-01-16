@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,12 +22,12 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_FILE_H
-#define __UPX_FILE_H
+#define __UPX_FILE_H 1
 
 class MemBuffer;
 
@@ -59,9 +59,11 @@ public:
     virtual bool isOpen() const { return _fd >= 0; }
     int getFd() const { return _fd; }
     const char *getName() const { return _name; }
+    virtual off_t st_size() const;  // { return _length; }
+    virtual void set_extent(off_t offset, off_t length);
 
 protected:
-    void sopen();
+    bool do_sopen();
     virtual int read(void *buf, int len);
     virtual int readx(void *buf, int len);
     virtual void write(const void *buf, int len);
@@ -73,6 +75,8 @@ protected:
     int _shflags;
     int _mode;
     const char *_name;
+    off_t _offset;
+    off_t _length;
 public:
     struct stat st;
 };
@@ -128,21 +132,15 @@ public:
     virtual void write(const void *buf, int len);
     virtual void write(const MemBuffer *buf, int len);
     virtual void write(const MemBuffer &buf, int len);
+    virtual void set_extent(off_t offset, off_t length);
+    virtual off_t unset_extent();  // returns actual length
 
     off_t getBytesWritten() const { return bytes_written; }
+    virtual off_t st_size() const;  // { return _length; }
 
-    // FIXME - these won't work when using the `--stdout' option
-    virtual void seek(off_t off, int whence)
-    {
-        assert(!opt->to_stdout);
-        super::seek(off,whence);
-    }
-    virtual void rewrite(const void *buf, int len)
-    {
-        assert(!opt->to_stdout);
-        write(buf, len);
-        bytes_written -= len;       // restore
-    }
+    // FIXME - these won't work when using the '--stdout' option
+    virtual void seek(off_t off, int whence);
+    virtual void rewrite(const void *buf, int len);
 
     // util
     static void dump(const char *name, const void *buf, int len, int flags=-1);

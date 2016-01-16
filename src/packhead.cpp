@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -104,9 +104,6 @@ int PackHeader::getPackHeaderSize() const
 
 void PackHeader::putPackHeader(upx_bytep p)
 {
-#if defined(UNUPX)
-    throwBadLoader();
-#else
     assert(get_le32(p) == UPX_MAGIC_LE32);
     if (get_le32(p+4) != UPX_MAGIC2_LE32)
     {
@@ -189,7 +186,6 @@ void PackHeader::putPackHeader(upx_bytep p)
     }
     // store new header_checksum
     p[size - 1] = get_packheader_checksum(p, size - 1);
-#endif /* UNUPX */
 }
 
 

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,7 +22,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -40,7 +40,7 @@
 #  define USE_UTIME 1
 #elif ((ACC_OS_WIN32 || ACC_OS_WIN64) && (ACC_CC_INTELC || ACC_CC_MSC))
 #  define USE__FUTIME 1
-#elif defined(HAVE_UTIME)
+#elif (HAVE_UTIME)
 #  define USE_UTIME 1
 #endif
 
@@ -51,6 +51,9 @@
 #  define SH_DENYWR     (-1)
 #endif
 
+// ignore errors in some cases and silence __attribute__((__warn_unused_result__))
+#define IGNORE_ERROR(var)        ACC_UNUSED(var)
+
 
 /*************************************************************************
 // process one file
@@ -58,12 +61,13 @@
 
 void do_one_file(const char *iname, char *oname)
 {
+    int r;
     struct stat st;
     memset(&st, 0, sizeof(st));
-#if defined(HAVE_LSTAT)
-    int r = lstat(iname,&st);
+#if (HAVE_LSTAT)
+    r = lstat(iname,&st);
 #else
-    int r = stat(iname,&st);
+    r = stat(iname,&st);
 #endif
 
     if (r != 0)
@@ -96,9 +100,14 @@ void do_one_file(const char *iname, char *oname)
     fi.st = st;
     fi.sopen(iname, O_RDONLY | O_BINARY, SH_DENYWR);
 
-#if defined(USE_FTIME)
-    struct ftime fit;
-    getftime(fi.getFd(),&fit);
+#if (USE_FTIME)
+    struct ftime fi_ftime;
+    memset(&fi_ftime, 0, sizeof(fi_ftime));
+    if (opt->preserve_timestamp)
+    {
+        if (getftime(fi.getFd(), &fi_ftime) != 0)
+            throwIOException("cannot determine file timestamp");
+    }
 #endif
 
     // open output file
@@ -108,7 +117,7 @@ void do_one_file(const char *iname, char *oname)
         if (opt->to_stdout)
         {
             if (!fo.openStdout(1, opt->force ? true : false))
-                throwIOException("data not written to a terminal; Use `-f' to force.");
+                throwIOException("data not written to a terminal; Use '-f' to force.");
         }
         else
         {
@@ -122,10 +131,12 @@ void do_one_file(const char *iname, char *oname)
             }
             if (opt->force >= 2)
             {
-#if defined(HAVE_CHMOD)
-                (void) ::chmod(tname, 0777);
+#if (HAVE_CHMOD)
+                r = chmod(tname, 0777);
+                IGNORE_ERROR(r);
 #endif
-                (void) ::unlink(tname);
+                r = unlink(tname);
+                IGNORE_ERROR(r);
             }
             int flags = O_CREAT | O_WRONLY | O_BINARY;
             if (opt->force)
@@ -140,6 +151,8 @@ void do_one_file(const char *iname, char *oname)
             // cannot rely on open() because of umask
             //int omode = st.st_mode | 0600;
             int omode = 0600;
+            if (!opt->preserve_mode)
+                omode = 0666;
             fo.sopen(tname,flags,shmode,omode);
             // open succeeded - now set oname[]
             strcpy(oname,tname);
@@ -162,15 +175,17 @@ void do_one_file(const char *iname, char *oname)
         throwInternalError("invalid command");
 
     // copy time stamp
-    if (oname[0] && fo.isOpen())
+    if (opt->preserve_timestamp && oname[0] && fo.isOpen())
     {
-#if defined(USE_FTIME)
-        setftime(fo.getFd(),&fit);
-#elif defined(USE__FUTIME)
+#if (USE_FTIME)
+        r = setftime(fo.getFd(), &fi_ftime);
+        IGNORE_ERROR(r);
+#elif (USE__FUTIME)
         struct _utimbuf u;
         u.actime = st.st_atime;
         u.modtime = st.st_mtime;
-        (void) _futime(fo.getFd(),&u);
+        r = _futime(fo.getFd(), &u);
+        IGNORE_ERROR(r);
 #endif
     }
 
@@ -184,8 +199,9 @@ void do_one_file(const char *iname, char *oname)
         // FIXME: .exe or .cof etc.
         if (!opt->backup)
         {
-#if defined(HAVE_CHMOD)
-            (void) ::chmod(iname, 0777);
+#if (HAVE_CHMOD)
+            r = chmod(iname, 0777);
+            IGNORE_ERROR(r);
 #endif
             File::unlink(iname);
         }
@@ -206,20 +222,32 @@ void do_one_file(const char *iname, char *oname)
         oname[0] = 0;
         const char *name = opt->output_name ? opt->output_name : iname;
         UNUSED(name);
-#if defined(USE_UTIME)
+#if (USE_UTIME)
         // copy time stamp
-        struct utimbuf u;
-        u.actime = st.st_atime;
-        u.modtime = st.st_mtime;
-        (void) ::utime(name,&u);
+        if (opt->preserve_timestamp)
+        {
+            struct utimbuf u;
+            u.actime = st.st_atime;
+            u.modtime = st.st_mtime;
+            r = utime(name, &u);
+            IGNORE_ERROR(r);
+        }
 #endif
-#if defined(HAVE_CHMOD)
+#if (HAVE_CHMOD)
         // copy permissions
-        (void) ::chmod(name, st.st_mode);
+        if (opt->preserve_mode)
+        {
+            r = chmod(name, st.st_mode);
+            IGNORE_ERROR(r);
+        }
 #endif
-#if defined(HAVE_CHOWN)
+#if (HAVE_CHOWN)
         // copy the ownership
-        (void) ::chown(name, st.st_uid, st.st_gid);
+        if (opt->preserve_ownership)
+        {
+            r = chown(name, st.st_uid, st.st_gid);
+            IGNORE_ERROR(r);
+        }
 #endif
     }
 
@@ -231,16 +259,16 @@ void do_one_file(const char *iname, char *oname)
 // process all files from the commandline
 **************************************************************************/
 
-#if !defined(WITH_GUI)
-
 static void unlink_ofile(char *oname)
 {
     if (oname && oname[0])
     {
-#if defined(HAVE_CHMOD)
-        (void) ::chmod(oname, 0777);
+#if (HAVE_CHMOD)
+        int r;
+        r = chmod(oname, 0777);
+        IGNORE_ERROR(r);
 #endif
-        if (::unlink(oname) == 0)
+        if (unlink(oname) == 0)
             oname[0] = 0;
     }
 }
@@ -273,23 +301,24 @@ void do_files(int i, int argc, char *argv[])
             unlink_ofile(oname);
             printErr(iname,&e);
             e_exit(EXIT_ERROR);
+        } catch (std::bad_alloc *e) {
+            unlink_ofile(oname);
+            printErr(iname,"out of memory");
+            UNUSED(e);
+            //delete e;
+            e_exit(EXIT_ERROR);
         } catch (const std::bad_alloc &) {
             unlink_ofile(oname);
             printErr(iname,"out of memory");
             e_exit(EXIT_ERROR);
-        } catch (std::bad_alloc *e) {
+        } catch (std::exception *e) {
             unlink_ofile(oname);
-            printErr(iname,"out of memory");
-            delete e;
+            printUnhandledException(iname,e);
+            //delete e;
             e_exit(EXIT_ERROR);
         } catch (const std::exception &e) {
             unlink_ofile(oname);
             printUnhandledException(iname,&e);
-            e_exit(EXIT_ERROR);
-        } catch (std::exception *e) {
-            unlink_ofile(oname);
-            printUnhandledException(iname,e);
-            delete e;
             e_exit(EXIT_ERROR);
         } catch (...) {
             unlink_ofile(oname);
@@ -309,8 +338,6 @@ void do_files(int i, int argc, char *argv[])
     else if (opt->cmd == CMD_FILEINFO)
         UiPacker::uiFileInfoTotal();
 }
-
-#endif /* !defined(WITH_GUI) */
 
 
 /*

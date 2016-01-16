@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -109,7 +109,7 @@ umin(unsigned const a, unsigned const b)
 
 #define COND1(b,x)     (b[x] == 0xe8 || b[x] == 0xe9)
 #define COND2(b,x,lc)  (lc!=(x) && 0xf==b[(x)-1] && 0x80<=b[x] && b[x]<=0x8f)
-#define  COND(b,x,lc,id) (COND1(b,x) || ((9<=(0xf&(id))) && COND2(b,x,lc)))
+#define COND(b,x,lc,id) (COND1(b,x) || ((9<=(0xf&(id))) && COND2(b,x,lc)))
 #define F                       f_ctok32_e8e9_bswap_le
 #define U                       u_ctok32_e8e9_bswap_le
 #include "filter/ctok.h"
@@ -226,6 +226,7 @@ const FilterImp::FilterEntry FilterImp::filters[] = {
 
     // 24-bit calltrick for arm
     { 0x50, 8, 0x01ffffff, f_ct24arm_le, u_ct24arm_le, s_ct24arm_le },
+    { 0x51, 8, 0x01ffffff, f_ct24arm_be, u_ct24arm_be, s_ct24arm_be },
 
     // 32-bit cto calltrick with jmp and jcc(swap 0x0f/0x8Y) and relative renumbering
     { 0x80, 8, 0x00ffffff, f_ctojr32_e8e9_bswap_le, u_ctojr32_e8e9_bswap_le, s_ctojr32_e8e9_bswap_le },

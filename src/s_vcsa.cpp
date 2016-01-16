@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,13 +22,13 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
 
-#if defined(USE_SCREEN) && defined(USE_SCREEN_VCSA)
+#if (USE_SCREEN) && (USE_SCREEN_VCSA)
 
 #include "screen.h"
 
@@ -37,7 +37,7 @@
 #define mask_fg 0x0f
 #define mask_bg 0xf0
 
-/* #define USE_SCROLLBACK */
+/* #define USE_SCROLLBACK 1 */
 
 
 /*************************************************************************
@@ -68,7 +68,7 @@ struct screen_data_t
     unsigned char init_attr;
     unsigned char map[256];
     unsigned short empty_line[256];
-#ifdef USE_SCROLLBACK
+#if USE_SCROLLBACK
     /* scrollback buffer */
     unsigned short sb_buf[32][256];
     int sb_size;
@@ -78,7 +78,7 @@ struct screen_data_t
 };
 
 
-#ifdef USE_SCROLLBACK
+#if USE_SCROLLBACK
 static __inline__ void sb_add(screen_t *this, int *val, int inc)
 {
     *val = (*val + inc) & (this->data->sb_size - 1);
@@ -311,7 +311,7 @@ static int init(screen_t *this, int fd)
     this->data->fd = -1;
     this->data->mode = -1;
     this->data->page = 0;
-#ifdef USE_SCROLLBACK
+#if USE_SCROLLBACK
     this->data->sb_size = 32;
     this->data->sb_base = 0;
     this->data->sb_sp = 0;
@@ -427,7 +427,7 @@ static int scrollUp(screen_t *this, int lines)
     if (lines <= 0 || lines > sr)
         return 0;
 
-#ifdef USE_SCROLLBACK
+#if USE_SCROLLBACK
     /* copy to scrollback buffer */
     for (y = 0; y < lines; y++)
     {
@@ -479,7 +479,7 @@ static int scrollDown(screen_t *this, int lines)
     /* copy top lines from scrollback buffer */
     for (y = lines; --y >= 0; )
     {
-#ifdef USE_SCROLLBACK
+#if USE_SCROLLBACK
         const unsigned short *buf = sb_pop(this);
         if (buf == NULL)
             clearLine(this,y);
@@ -608,7 +608,7 @@ screen_t *screen_vcsa_construct(void)
 }
 
 
-#endif /* defined(USE_SCREEN) && defined(USE_SCREEN_VCSA) */
+#endif /* (USE_SCREEN) && (USE_SCREEN_VCSA) */
 
 
 /*

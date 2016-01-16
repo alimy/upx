@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,7 +22,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -41,7 +41,7 @@ static int mcheck_init()
     if (use_mcheck < 0)
     {
         use_mcheck = 1;
-#if defined(WITH_VALGRIND) && defined(RUNNING_ON_VALGRIND)
+#if (WITH_VALGRIND) && defined(RUNNING_ON_VALGRIND)
         if (RUNNING_ON_VALGRIND)
         {
             //fprintf(stderr, "upx: detected RUNNING_ON_VALGRIND\n");
@@ -101,16 +101,15 @@ void MemBuffer::dealloc()
 }
 
 
-void MemBuffer::allocForCompression(unsigned uncompressed_size, unsigned extra)
+unsigned MemBuffer::getSizeForCompression(unsigned uncompressed_size, unsigned extra)
 {
     assert((int)uncompressed_size > 0);
     assert((int)extra >= 0);
     unsigned size = uncompressed_size + uncompressed_size/8 + 256 + extra;
-    alloc(size);
+    return size;
 }
 
-
-void MemBuffer::allocForUncompression(unsigned uncompressed_size, unsigned extra)
+unsigned MemBuffer::getSizeForUncompression(unsigned uncompressed_size, unsigned extra)
 {
     assert((int)uncompressed_size > 0);
     assert((int)extra >= 0);
@@ -120,6 +119,20 @@ void MemBuffer::allocForUncompression(unsigned uncompressed_size, unsigned extra
 #if (ACC_ARCH_I386)
     size += 3;
 #endif
+    return size;
+}
+
+
+void MemBuffer::allocForCompression(unsigned uncompressed_size, unsigned extra)
+{
+    unsigned size = getSizeForCompression(uncompressed_size, extra);
+    alloc(size);
+}
+
+
+void MemBuffer::allocForUncompression(unsigned uncompressed_size, unsigned extra)
+{
+    unsigned size = getSizeForUncompression(uncompressed_size, extra);
     alloc(size);
 }
 
@@ -179,11 +192,7 @@ void MemBuffer::alloc(unsigned size)
     assert((int)total > 0);
     unsigned char *p = (unsigned char *) malloc(total);
     if (!p)
-    {
-        //throw bad_alloc();
-        throw OutOfMemoryException("out of memory");
-        //exit(1);
-    }
+        throwOutOfMemoryException();
     b_size = size;
     if (use_mcheck)
     {
@@ -196,6 +205,8 @@ void MemBuffer::alloc(unsigned size)
     }
     else
         b = p ;
+
+    //fill(0, b_size, (rand() & 0xff) | 1); // debug
 }
 
 

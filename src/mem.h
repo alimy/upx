@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,12 +22,12 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_MEM_H
-#define __UPX_MEM_H
+#define __UPX_MEM_H 1
 
 
 /*************************************************************************
@@ -38,8 +38,11 @@ class MemBuffer
 {
 public:
     MemBuffer();
-    MemBuffer(unsigned size);
+    explicit MemBuffer(unsigned size);
     ~MemBuffer();
+
+    static unsigned getSizeForCompression(unsigned uncompressed_size, unsigned extra=0);
+    static unsigned getSizeForUncompression(unsigned uncompressed_size, unsigned extra=0);
 
     void alloc(unsigned size);
     void allocForCompression(unsigned uncompressed_size, unsigned extra=0);

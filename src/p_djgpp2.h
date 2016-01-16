@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,13 +21,13 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_P_DJGPP2_H
-#define __UPX_P_DJGPP2_H
+#define __UPX_P_DJGPP2_H 1
 
 
 /*************************************************************************
@@ -43,6 +43,7 @@ public:
     virtual int getVersion() const { return 14; }
     virtual int getFormat() const { return UPX_F_DJGPP2_COFF; }
     virtual const char *getName() const { return "djgpp2/coff"; }
+    virtual const char *getFullName(const options_t *) const { return "i386-dos32.djgpp2.coff"; }
     virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
@@ -57,25 +58,24 @@ protected:
     virtual int readFileHeader();
 
     virtual unsigned findOverlapOverhead(const upx_bytep buf,
+                                         const upx_bytep tbuf,
                                          unsigned range = 0,
                                          unsigned upper_limit = ~0u) const;
-    virtual int buildLoader(const Filter *ft);
+    virtual void buildLoader(const Filter *ft);
+    virtual Linker* newLinker() const;
 
     long coff_offset;
 
-    struct external_scnhdr_t
-    {
+    __packed_struct(external_scnhdr_t)
         char    _[12];    // name, paddr
         LE32    vaddr;
         LE32    size;
         LE32    scnptr;
         char    misc[12]; // relptr, lnnoptr, nreloc, nlnno
         char    __[4];    // flags
-    }
-    __attribute_packed;
+    __packed_struct_end()
 
-    struct coff_header_t
-    {
+    __packed_struct(coff_header_t)
         // ext_file_hdr
         LE16    f_magic;
         LE16    f_nscns;
@@ -96,8 +96,7 @@ protected:
 
         // section headers
         external_scnhdr_t sh[3];
-    }
-    __attribute_packed;
+    __packed_struct_end()
 
     coff_header_t coff_hdr;
     external_scnhdr_t *text,*data,*bss;

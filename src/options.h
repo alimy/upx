@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,12 +22,12 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_OPTIONS_H
-#define __UPX_OPTIONS_H
+#define __UPX_OPTIONS_H 1
 
 
 /*************************************************************************
@@ -45,13 +45,25 @@ enum {
 struct options_t {
     int cmd;
 
+    // mp (meta) options
+    int mp_compress_task;
+    bool mp_query_format;
+    bool mp_query_num_tasks;
+
     // compression options
     int method;
-    int level;          // compression level 1..10
-    int filter;         // preferred filter from Packer::getFilters()
-    bool all_methods;   // try all available compression methods ?
-    bool all_filters;   // try all available filters ?
-    bool no_filter;     // force no filter
+    bool method_lzma_seen;
+    bool method_nrv2b_seen;
+    bool method_nrv2d_seen;
+    bool method_nrv2e_seen;
+    int level;              // compression level 1..10
+    int filter;             // preferred filter from Packer::getFilters()
+    bool ultra_brute;
+    bool all_methods;       // try all available compression methods ?
+    bool all_methods_use_lzma;
+    bool all_filters;       // try all available filters ?
+    bool no_filter;         // force no filter
+    bool exact;             // user requires byte-identical decompression
 
     // other options
     int backup;
@@ -62,6 +74,9 @@ struct options_t {
     bool no_env;
     bool no_progress;
     const char *output_name;
+    bool preserve_mode;
+    bool preserve_ownership;
+    bool preserve_timestamp;
     int small;
     int verbose;
     bool to_stdout;
@@ -69,6 +84,7 @@ struct options_t {
     // debug options
     struct {
         int debug_level;
+        bool disable_random_id;         // for Packer::getRandomId()
         const char *dump_stub_loader;
         char fake_stub_version[4+1];    // for internal debugging
         char fake_stub_year[4+1];       // for internal debugging
@@ -82,16 +98,14 @@ struct options_t {
     };
     int overlay;
 
-    // compression runtime parameters - see struct ucl_compress_config_t
-    struct {
-        upx_uint max_offset;
-        upx_uint max_match;
-        int s_level;
-        int h_level;
-        int p_level;
-        int c_flags;
-        upx_uint m_size;
-    } crp;
+    // compression runtime parameters - see struct XXX_compress_config_t
+    struct crp_t {
+        lzma_compress_config_t  crp_lzma;
+        ucl_compress_config_t   crp_ucl;
+        zlib_compress_config_t  crp_zlib;
+        void reset() { crp_lzma.reset(); crp_ucl.reset(); crp_zlib.reset(); }
+    };
+    crp_t crp;
 
     // CPU
     enum {
@@ -120,6 +134,7 @@ struct options_t {
         bool boot_only;
         bool no_align;
         bool do_8bit;
+        bool do_8mib;
     } ps1_exe;
     struct {
         unsigned blocksize;
@@ -127,6 +142,8 @@ struct options_t {
         bool is_ptinterp;           // is PT_INTERP, so don't adjust auxv_t
         bool use_ptinterp;          // use PT_INTERP /opt/upx/run
         bool make_ptinterp;         // make PT_INTERP [ignore current file!]
+        bool unmap_all_pages;       // thus /proc/self/exe vanishes
+        unsigned char osabi0;       // replacement if 0==.e_ident[EI_OSABI]
         enum { SCRIPT_MAX = 32 };
         const char *script_name;
     } o_unix;
@@ -141,6 +158,8 @@ struct options_t {
         int strip_relocs;
         const char *keep_resource;
     } win32_pe;
+
+    void reset();
 };
 
 extern struct options_t *opt;

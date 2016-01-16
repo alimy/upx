@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,7 +22,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -30,7 +30,7 @@
 
 FILE *con_term = NULL;
 
-#if defined(USE_CONSOLE)
+#if (USE_CONSOLE)
 
 /*************************************************************************
 //
@@ -84,14 +84,14 @@ static int do_init(FILE *f)
     if (!acc_isatty(STDIN_FILENO) || !acc_isatty(STDOUT_FILENO) || !acc_isatty(STDERR_FILENO))
         return con_mode;
 
-#if defined(USE_ANSI)
+#if (USE_ANSI)
     try_init(&console_ansi_mono,f);
     try_init(&console_ansi_color,f);
 #endif
-#if defined(USE_SCREEN)
+#if (USE_SCREEN)
     try_init(&console_screen,f);
 #endif
-#if defined(USE_AALIB)
+#if (USE_AALIB)
     try_init(&console_aalib,f);
 #endif
 
@@ -124,7 +124,7 @@ static int set_fg(FILE *f, int fg)
 }
 
 
-static upx_bool intro(FILE *f)
+static bool intro(FILE *f)
 {
     if (con == me)
         init(f,-1,-1);

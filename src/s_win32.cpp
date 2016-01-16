@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,13 +22,13 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
 
-#if defined(USE_SCREEN_WIN32)
+#if (USE_SCREEN_WIN32)
 
 #include "screen.h"
 
@@ -52,7 +52,7 @@
 #  define timeval win32_timeval  /* struct timeval already in <sys/time.h> */
 #endif
 #include <windows.h>
-#if defined(HAVE_CONIO_H)
+#if (HAVE_CONIO_H)
 #  include <conio.h>
 #endif
 
@@ -449,7 +449,7 @@ static int getScrollCounter(const screen_t *this)
 static int s_kbhit(screen_t *this)
 {
     UNUSED(this);
-#if defined(HAVE_CONIO_H)
+#if (HAVE_CONIO_H)
 # if defined(__RSXNT__)
     return 0;
 # elif defined(__BORLANDC__) || defined(__WATCOMC__)
@@ -526,7 +526,7 @@ screen_t *screen_win32_construct(void)
 }
 
 
-#endif /* defined(USE_SCREEN) && (ACC_OS_WIN32 || ACC_OS_WIN64) */
+#endif /* (USE_SCREEN_WIN32) */
 
 
 /*

@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
-   Copyright (C) 2000-2004 John F. Reiser
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2000-2010 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -23,7 +23,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    John F. Reiser
    <jreiser@users.sourceforge.net>
@@ -31,7 +31,7 @@
 
 
 #ifndef __UPX_P_LX_INTERP_H  //{
-#define __UPX_P_LX_INTERP_H
+#define __UPX_P_LX_INTERP_H 1
 
 
 /*************************************************************************
@@ -47,6 +47,7 @@ public:
     virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_LINUX_ELFI_i386; }
     virtual const char *getName() const { return "linux/elfi386"; }
+    virtual const char *getFullName(const options_t *) const { return "i386-linux.elf.interp"; }
 
     virtual bool canPack();
     virtual void unpack(OutputFile *fo);

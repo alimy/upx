@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,13 +22,13 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
 
-#if defined(USE_SCREEN)
+#if (USE_SCREEN)
 
 #include "screen.h"
 
@@ -130,15 +130,15 @@ static int init(FILE *f, int o, int now)
     if (!screen)
         screen = do_construct(screen_djgpp2_construct(),fd);
 #endif
-#if defined(USE_SCREEN_WIN32)
+#if (USE_SCREEN_WIN32)
     if (!screen)
         screen = do_construct(screen_win32_construct(),fd);
 #endif
-#if defined(USE_SCREEN_VCSA)
+#if (USE_SCREEN_VCSA)
     if (!screen)
         screen = do_construct(screen_vcsa_construct(),fd);
 #endif
-#if defined(USE_SCREEN_CURSES)
+#if (USE_SCREEN_CURSES)
     if (!screen && o == CON_SCREEN)
         screen = do_construct(screen_curses_construct(),fd);
 #endif
@@ -295,10 +295,10 @@ static void print0(FILE *f, const char *ss)
 }
 
 
-static upx_bool intro(FILE *f)
+static bool intro(FILE *f)
 {
     UNUSED(f);
-#if defined(USE_FRAMES)
+#if (USE_FRAMES)
     if (screen->intro)
         return screen->intro(screen,screen_show_frames);
 #endif

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -31,11 +31,12 @@
 #include "filter.h"
 #include "packer.h"
 #include "p_com.h"
+#include "linker.h"
 
 static const
-#include "stub/l_com.h"
+#include "stub/i086-dos16.com.h"
 
-//#define TESTING
+//#define TESTING 1
 
 
 /*************************************************************************
@@ -44,16 +45,11 @@ static const
 
 const int *PackCom::getCompressionMethods(int method, int level) const
 {
-    static const int m_nrv2b[] = { M_NRV2B_LE16, -1 };
-    if (M_IS_NRV2B(method))
-        return m_nrv2b;
+    static const int m_nrv2b[] = { M_NRV2B_LE16, M_END };
 #if 0
-    // NOT IMPLEMENTED
-    static const int m_nrv2d[] = { M_NRV2D_LE16, -1 };
-    if (M_IS_NRV2D(method))
-        return m_nrv2d;
+    static const int m_nrv2d[] = { M_NRV2D_LE16, M_END };
 #endif
-    UNUSED(level);
+    UNUSED(method); UNUSED(level);
     return m_nrv2b;
 }
 
@@ -62,7 +58,7 @@ const int *PackCom::getFilters() const
 {
     static const int filters[] = {
         0x06, 0x03, 0x04, 0x01, 0x05, 0x02,
-    -1 };
+    FT_END };
     return filters;
 }
 
@@ -98,10 +94,9 @@ void PackCom::patchLoader(OutputFile *fo,
                           upx_byte *loader, int lsize,
                           unsigned calls)
 {
-    const int filter_id = ph.filter;
     const int e_len = getLoaderSectionStart("COMCUTPO");
     const int d_len = lsize - e_len;
-    assert(e_len > 0 && e_len < 256);
+    assert(e_len > 0 && e_len < 128);
     assert(d_len > 0 && d_len < 256);
 
     const unsigned upper_end = ph.u_len + ph.overlap_overhead + d_len + 0x100;
@@ -111,22 +106,19 @@ void PackCom::patchLoader(OutputFile *fo,
     if (upper_end + stacksize > 0xfffe)
         throwCantPack("file is too big for dos/com");
 
-    if (filter_id)
-    {
-        assert(calls > 0);
-        patch_le16(loader,lsize,"CT",calls);
-    }
+    linker->defineSymbol("calltrick_calls", calls);
+    linker->defineSymbol("sp_limit", upper_end + stacksize);
+    linker->defineSymbol("bytes_to_copy", ph.c_len + lsize);
+    linker->defineSymbol("copy_source", ph.c_len + lsize + 0x100);
+    linker->defineSymbol("copy_destination", upper_end);
+    linker->defineSymbol("neg_e_len", 0 - e_len);
+    linker->defineSymbol("NRV2B160", ph.u_len + ph.overlap_overhead);
 
+    relocateLoader();
+    loader = getLoader();
+
+    // some day we could use the relocation stuff for patchPackHeader too
     patchPackHeader(loader,e_len);
-
-    // NOTE: Depends on: decompr_start == cutpoint+1 !!!
-    patch_le16(loader,e_len,"JM",upper_end - 0xff - d_len - getLoaderSection("UPX1HEAD"));
-    loader[getLoaderSectionStart("COMSUBSI") - 1] = (upx_byte) -e_len;
-    patch_le16(loader,e_len,"DI",upper_end);
-    patch_le16(loader,e_len,"SI",ph.c_len + lsize + 0x100);
-    patch_le16(loader,e_len,"CX",ph.c_len + lsize);
-    patch_le16(loader,e_len,"SP",upper_end + stacksize);
-
     // write loader + compressed file
     fo->write(loader,e_len);            // entry
     fo->write(obuf,ph.c_len);
@@ -139,10 +131,10 @@ void PackCom::patchLoader(OutputFile *fo,
 }
 
 
-int PackCom::buildLoader(const Filter *ft)
+void PackCom::buildLoader(const Filter *ft)
 {
-    initLoader(nrv2b_loader,sizeof(nrv2b_loader));
-    addLoader("COMMAIN1,COMSUBSI",
+    initLoader(stub_i086_dos16_com, sizeof(stub_i086_dos16_com));
+    addLoader("COMMAIN1",
               ph.first_offset_found == 1 ? "COMSBBBP" : "",
               "COMPSHDI",
               ft->id ? "COMCALLT" : "",
@@ -150,7 +142,7 @@ int PackCom::buildLoader(const Filter *ft)
               ft->id ? "NRVDDONE" : "NRVDRETU",
               "NRVDECO1",
               ph.max_offset_found <= 0xd00 ? "NRVLED00" : "NRVGTD00",
-              "NRVDECO2,NRV2B169",
+              "NRVDECO2",
               NULL
              );
     if (ft->id)
@@ -158,7 +150,6 @@ int PackCom::buildLoader(const Filter *ft)
         assert(ft->calls > 0);
         addFilter16(ft->id);
     }
-    return getLoaderSize();
 }
 
 
@@ -206,7 +197,7 @@ void PackCom::pack(OutputFile *fo)
     ft.addvalue = getCallTrickOffset();
     // compress
     const unsigned overlap_range = ph.u_len < 0xFE00 - ft.addvalue ? 32 : 0;
-    compressWithFilters(&ft, overlap_range);
+    compressWithFilters(&ft, overlap_range, NULL_cconf);
 
     const int lsize = getLoaderSize();
     MemBuffer loader(lsize);
@@ -267,6 +258,12 @@ void PackCom::unpack(OutputFile *fo)
     // write decompressed file
     if (fo)
         fo->write(obuf,ph.u_len);
+}
+
+
+Linker* PackCom::newLinker() const
+{
+    return new ElfLinkerX86();
 }
 
 

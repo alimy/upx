@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
-   Copyright (C) 2002-2004 Jens Medoch
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2002-2010 Jens Medoch
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -23,7 +23,7 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
 
    Jens Medoch
    <jssg@users.sourceforge.net>
@@ -31,7 +31,7 @@
 
 
 #ifndef __UPX_P_PS1_H
-#define __UPX_P_PS1_H
+#define __UPX_P_PS1_H 1
 
 
 /*************************************************************************
@@ -46,6 +46,7 @@ public:
     virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_PS1_EXE; }
     virtual const char *getName() const { return "ps1/exe"; }
+    virtual const char *getFullName(const options_t *) const { return "mipsel.r3000-ps1"; }
     virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
@@ -56,14 +57,17 @@ public:
     virtual int canUnpack();
 
 protected:
-    virtual void patch_mips_le(void *b, int blen, const void *old, unsigned new_);
-    virtual int buildLoader(const Filter *ft);
+    virtual void putBkupHeader(const unsigned char *src, unsigned char *dst, unsigned *len);
+    virtual bool getBkupHeader(unsigned char *src, unsigned char * dst);
+    virtual bool readBkupHeader();
+    virtual void buildLoader(const Filter *ft);
+    virtual bool findBssSection();
+    virtual Linker* newLinker() const;
 
     virtual int readFileHeader();
     virtual bool checkFileHeader();
 
-    struct ps1_exe_t
-    {
+    __packed_struct(ps1_exe_t)
         // ident string
         char id[8];
         // is NULL
@@ -84,24 +88,41 @@ protected:
         LE32 sp, fp, gp0, ra, k0;
         // origin Jap/USA/Europe
         char origin[60];
-
-        // some safety space after that
-        char pad[8];
         // backup of the original header (epc - is_len)
+        // id & the upx header ...
+    __packed_struct_end()
+
+    // for unpack
+    __packed_struct(ps1_exe_hb_t)
         LE32 ih_bkup[10];
         // plus checksum for the backup
         LE32 ih_csum;
-        // id & the upx header.
-    }
-    __attribute_packed;
+    __packed_struct_end()
+
+    __packed_struct(ps1_exe_chb_t)
+        unsigned char id;
+        unsigned char len;
+        LE16          ih_csum;
+        unsigned char ih_bkup;
+    __packed_struct_end()
+
+    __packed_struct(bss_nfo)
+        LE16    hi1, op1, lo1, op2;
+        LE16    hi2, op3, lo2, op4;
+    __packed_struct_end()
 
     ps1_exe_t ih, oh;
+    ps1_exe_hb_t bh;
 
     bool isCon;
     bool is32Bit;
-    unsigned overlap;
-    unsigned sa_cnt;
-
+    bool buildPart2;
+    bool foundBss;
+    unsigned ram_size;
+    unsigned sa_cnt, overlap;
+    unsigned sz_lunc, sz_lcpr;
+    unsigned pad_code;
+    unsigned bss_start, bss_end;
     // filesize-PS_HDR_SIZE
     unsigned fdata_size;
 };
@@ -113,5 +134,3 @@ protected:
 /*
 vi:ts=4:et
 */
-
-

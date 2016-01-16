@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -62,7 +62,7 @@ bool PackUnix::canPack()
 #if defined(__unix__)
     // must be executable by owner
     if ((fi->st.st_mode & S_IXUSR) == 0)
-        throwCantPack("file not executable; try `chmod +x'");
+        throwCantPack("file not executable; try 'chmod +x'");
 #endif
     if (file_size < 4096)
         throwCantPack("file is too small");
@@ -125,8 +125,8 @@ int PackUnix::getStrategy(Filter &/*ft*/)
     // Called just before reading and compressing each block.
     // Might want to adjust blocksize, etc.
 
-    // If user specified the filter, then use it (-2==strategy).
-    // Else try the first two filters, and pick the better (2==strategy).
+    // If user specified the filter, then use it (-2==filter_strategy).
+    // Else try the first two filters, and pick the better (2==filter_strategy).
     return (opt->no_filter ? -3 : ((opt->filter > 0) ? -2 : 2));
 }
 
@@ -151,9 +151,9 @@ void PackUnix::pack2(OutputFile *fo, Filter &ft)
         // which assumes it has free choice on each call [block].
         // And if the choices aren't the same on each block,
         // then un-filtering will give incorrect results.
-        int strategy = getStrategy(ft);
+        int filter_strategy = getStrategy(ft);
         if (file_size > (off_t)blocksize)
-            strategy = -3;      // no filters
+            filter_strategy = -3;      // no filters
 
         int l = fi->readx(ibuf, UPX_MIN(blocksize, remaining));
         remaining -= l;
@@ -170,11 +170,13 @@ void PackUnix::pack2(OutputFile *fo, Filter &ft)
         // that is, AFTER filtering.  We want BEFORE filtering,
         // so that decompression checks the end-to-end checksum.
         unsigned const end_u_adler = upx_adler32(ibuf, ph.u_len, ph.u_adler);
-        compressWithFilters(&ft, OVERHEAD, strategy);
+        compressWithFilters(&ft, OVERHEAD, NULL_cconf, filter_strategy);
 
         if (ph.c_len < ph.u_len) {
+            const upx_bytep tbuf = NULL;
+            if (ft.id == 0) tbuf = ibuf;
             ph.overlap_overhead = OVERHEAD;
-            if (!testOverlappingDecompression(obuf, ph.overlap_overhead)) {
+            if (!testOverlappingDecompression(obuf, tbuf, ph.overlap_overhead)) {
                 // not in-place compressible
                 ph.c_len = ph.u_len;
             }
@@ -189,8 +191,8 @@ void PackUnix::pack2(OutputFile *fo, Filter &ft)
         // write block header
         b_info blk_info;
         memset(&blk_info, 0, sizeof(blk_info));
-        set_native32(&blk_info.sz_unc, ph.u_len);
-        set_native32(&blk_info.sz_cpr, ph.c_len);
+        set_te32(&blk_info.sz_unc, ph.u_len);
+        set_te32(&blk_info.sz_cpr, ph.c_len);
         if (ph.c_len < ph.u_len) {
             blk_info.b_method = (unsigned char) ph.method;
             blk_info.b_ftid = (unsigned char) ph.filter;
@@ -225,7 +227,7 @@ void PackUnix::pack2(OutputFile *fo, Filter &ft)
 void
 PackUnix::patchLoaderChecksum()
 {
-    unsigned char *const ptr = const_cast<unsigned char *>(getLoader());
+    unsigned char *const ptr = getLoader();
     l_info *const lp = &linfo;
     // checksum for loader; also some PackHeader info
     lp->l_magic = UPX_MAGIC_LE32;  // LE32 always
@@ -236,11 +238,10 @@ PackUnix::patchLoaderChecksum()
     lp->l_checksum = upx_adler32(ptr, lsize);
 }
 
-void PackUnix::pack3(OutputFile *fo, Filter &ft)
+void PackUnix::pack3(OutputFile *fo, Filter &/*ft*/)
 {
-    upx_byte const *p = getLoader();
+    upx_byte *p = getLoader();
     lsize = getLoaderSize();
-    patchFilter32(const_cast<upx_byte *>(p), lsize, &ft);
     updateLoader(fo);
     patchLoaderChecksum();
     fo->write(p, lsize);
@@ -251,7 +252,7 @@ void PackUnix::pack4(OutputFile *fo, Filter &)
     writePackHeader(fo);
 
     unsigned tmp;
-    set_native32(&tmp, overlay_offset);
+    set_te32(&tmp, overlay_offset);
     fo->write(&tmp, sizeof(tmp));
 }
 
@@ -277,9 +278,9 @@ void PackUnix::pack(OutputFile *fo)
     pack1(fo, ft);  // generate Elf header, etc.
 
     p_info hbuf;
-    set_native32(&hbuf.p_progid, progid);
-    set_native32(&hbuf.p_filesize, file_size);
-    set_native32(&hbuf.p_blocksize, blocksize);
+    set_te32(&hbuf.p_progid, progid);
+    set_te32(&hbuf.p_filesize, file_size);
+    set_te32(&hbuf.p_blocksize, blocksize);
     fo->write(&hbuf, sizeof(hbuf));
 
     pack2(fo, ft);  // append the compressed body
@@ -305,21 +306,21 @@ void PackUnix::packExtent(
     unsigned &total_out,
     Filter *ft,
     OutputFile *fo,
-    unsigned hdr_ulen
+    unsigned hdr_u_len
 )
 {
     unsigned const init_u_adler = ph.u_adler;
     unsigned const init_c_adler = ph.c_adler;
     MemBuffer hdr_ibuf;
-    if (hdr_ulen) {
-        hdr_ibuf.alloc(hdr_ulen);
+    if (hdr_u_len) {
+        hdr_ibuf.alloc(hdr_u_len);
         fi->seek(0, SEEK_SET);
-        int l = fi->readx(hdr_ibuf, hdr_ulen);
+        int l = fi->readx(hdr_ibuf, hdr_u_len);
         (void)l;
     }
     fi->seek(x.offset, SEEK_SET);
     for (off_t rest = x.size; 0 != rest; ) {
-        int const strategy = getStrategy(*ft);
+        int const filter_strategy = getStrategy(*ft);
         int l = fi->readx(ibuf, UPX_MIN(rest, (off_t)blocksize));
         if (l == 0) {
             break;
@@ -346,17 +347,18 @@ void PackUnix::packExtent(
             ft->id = 0;
             ft->cto = 0;
 
-            compressWithFilters(ft, OVERHEAD, strategy,
-                NULL, 0, 0, 0, 0, // those 5 args are the defaults
-                hdr_ibuf, hdr_ulen);
+            compressWithFilters(ft, OVERHEAD, NULL_cconf, filter_strategy,
+                                0, 0, 0, hdr_ibuf, hdr_u_len);
         }
         else {
-            (void) compress(ibuf, obuf);    // ignore return value
+            (void) compress(ibuf, ph.u_len, obuf);    // ignore return value
         }
 
         if (ph.c_len < ph.u_len) {
+            const upx_bytep tbuf = NULL;
+            if (ft == NULL || ft->id == 0) tbuf = ibuf;
             ph.overlap_overhead = OVERHEAD;
-            if (!testOverlappingDecompression(obuf, ph.overlap_overhead)) {
+            if (!testOverlappingDecompression(obuf, tbuf, ph.overlap_overhead)) {
                 // not in-place compressible
                 ph.c_len = ph.u_len;
             }
@@ -371,35 +373,35 @@ void PackUnix::packExtent(
 
         // write block sizes
         b_info tmp;
-        if (hdr_ulen) {
-            unsigned hdr_clen;
+        if (hdr_u_len) {
+            unsigned hdr_c_len = 0;
             MemBuffer hdr_obuf;
-            unsigned result[16];
-            upx_compress_config_t conf;
-            memset(&conf, 0xff, sizeof(conf));
-            hdr_obuf.allocForCompression(hdr_ulen);
-            int r = upx_compress(hdr_ibuf, hdr_ulen, hdr_obuf, &hdr_clen, 0,
-                ph.method, 10, &conf, result);
-            (void)r;
-            ph.saved_u_adler = upx_adler32(hdr_ibuf, hdr_ulen, init_u_adler);
-            ph.saved_c_adler = upx_adler32(hdr_obuf, hdr_clen, init_c_adler);
+            hdr_obuf.allocForCompression(hdr_u_len);
+            int r = upx_compress(hdr_ibuf, hdr_u_len, hdr_obuf, &hdr_c_len, 0,
+                ph.method, 10, NULL, NULL);
+            if (r != UPX_E_OK)
+                throwInternalError("header compression failed");
+            if (hdr_c_len >= hdr_u_len)
+                throwInternalError("header compression size increase");
+            ph.saved_u_adler = upx_adler32(hdr_ibuf, hdr_u_len, init_u_adler);
+            ph.saved_c_adler = upx_adler32(hdr_obuf, hdr_c_len, init_c_adler);
             ph.u_adler = upx_adler32(ibuf, ph.u_len, ph.saved_u_adler);
             ph.c_adler = upx_adler32(obuf, ph.c_len, ph.saved_c_adler);
             end_u_adler = ph.u_adler;
             memset(&tmp, 0, sizeof(tmp));
-            set_native32(&tmp.sz_unc, hdr_ulen);
-            set_native32(&tmp.sz_cpr, hdr_clen);
+            set_te32(&tmp.sz_unc, hdr_u_len);
+            set_te32(&tmp.sz_cpr, hdr_c_len);
             tmp.b_method = (unsigned char) ph.method;
             fo->write(&tmp, sizeof(tmp));
             b_len += sizeof(b_info);
-            fo->write(hdr_obuf, hdr_clen);
-            total_out += hdr_clen;
-            total_in  += hdr_ulen;
-            hdr_ulen = 0;  // compress hdr one time only
+            fo->write(hdr_obuf, hdr_c_len);
+            total_out += hdr_c_len;
+            total_in  += hdr_u_len;
+            hdr_u_len = 0;  // compress hdr one time only
         }
         memset(&tmp, 0, sizeof(tmp));
-        set_native32(&tmp.sz_unc, ph.u_len);
-        set_native32(&tmp.sz_cpr, ph.c_len);
+        set_te32(&tmp.sz_unc, ph.u_len);
+        set_te32(&tmp.sz_cpr, ph.c_len);
         if (ph.c_len < ph.u_len) {
             tmp.b_method = (unsigned char) ph.method;
             if (ft) {
@@ -410,6 +412,9 @@ void PackUnix::packExtent(
         fo->write(&tmp, sizeof(tmp));
         b_len += sizeof(b_info);
 
+        if (ft) {
+            ph.u_adler = end_u_adler;
+        }
         // write compressed data
         if (ph.c_len < ph.u_len) {
             fo->write(obuf, ph.c_len);
@@ -420,9 +425,6 @@ void PackUnix::packExtent(
             fo->write(ibuf, ph.u_len);
         }
 
-        if (ft) {
-            ph.u_adler = end_u_adler;
-        }
         total_in += ph.u_len;
         total_out += ph.c_len;
     }
@@ -437,8 +439,8 @@ void PackUnix::unpackExtent(unsigned wanted, OutputFile *fo,
     b_info hdr; memset(&hdr, 0, sizeof(hdr));
     while (wanted) {
         fi->readx(&hdr, szb_info);
-        int const sz_unc = ph.u_len = get_native32(&hdr.sz_unc);
-        int const sz_cpr = ph.c_len = get_native32(&hdr.sz_cpr);
+        int const sz_unc = ph.u_len = get_te32(&hdr.sz_unc);
+        int const sz_cpr = ph.c_len = get_te32(&hdr.sz_cpr);
         ph.filter_cto = hdr.b_cto8;
 
         if (sz_unc == 0) { // must never happen while 0!=wanted
@@ -501,13 +503,13 @@ int PackUnix::canUnpack()
 
     fi->seek(-bufsize, SEEK_END);
     fi->readx(buf, bufsize);
-    if (!getPackHeader(buf, bufsize))
+    if (!getPackHeader(buf, bufsize, true))  // allow incompressible extents
         return false;
 
     int l = ph.buf_offset + ph.getPackHeaderSize();
     if (l < 0 || l + 4 > bufsize)
         throwCantUnpack("file corrupted");
-    overlay_offset = get_native32(buf+l);
+    overlay_offset = get_te32(buf+l);
     if ((off_t)overlay_offset >= file_size)
         throwCantUnpack("file corrupted");
 
@@ -529,15 +531,15 @@ void PackUnix::unpack(OutputFile *fo)
         Elf32_Ehdr ehdr;
         fi->seek(0, SEEK_SET);
         fi->readx(&ehdr, sizeof(ehdr));
-        unsigned const e_entry = get_native32(&ehdr.e_entry);
+        unsigned const e_entry = get_te32(&ehdr.e_entry);
         if (e_entry < 0x401180) { /* old style, 8-byte b_info */
             szb_info = 2*sizeof(unsigned);
         }
         else {
             Elf32_Phdr phdr;
-            fi->seek(get_native32(&ehdr.e_phoff), SEEK_SET);
+            fi->seek(get_te32(&ehdr.e_phoff), SEEK_SET);
             fi->readx(&phdr, sizeof(phdr));
-            unsigned const p_vaddr = get_native32(&phdr.p_vaddr);
+            unsigned const p_vaddr = get_te32(&phdr.p_vaddr);
             if (0x80==(e_entry - p_vaddr)) { /* 1.22 old style */
                 szb_info = 2*sizeof(unsigned);
             }
@@ -556,8 +558,8 @@ void PackUnix::unpack(OutputFile *fo)
     {
         p_info hbuf;
         fi->readx(&hbuf, sizeof(hbuf));
-        orig_file_size = get_native32(&hbuf.p_filesize);
-        blocksize = get_native32(&hbuf.p_blocksize);
+        orig_file_size = get_te32(&hbuf.p_filesize);
+        blocksize = get_te32(&hbuf.p_blocksize);
 
         if (file_size > (off_t)orig_file_size || blocksize > orig_file_size)
             throwCantUnpack("file header corrupted");
@@ -581,8 +583,8 @@ void PackUnix::unpack(OutputFile *fo)
         unsigned sz_unc, sz_cpr;
 
         fi->readx(&bhdr, szb_info);
-        ph.u_len = sz_unc = get_native32(&bhdr.sz_unc);
-        ph.c_len = sz_cpr = get_native32(&bhdr.sz_cpr);
+        ph.u_len = sz_unc = get_te32(&bhdr.sz_unc);
+        ph.c_len = sz_cpr = get_te32(&bhdr.sz_cpr);
 
         if (sz_unc == 0)                   // uncompressed size 0 -> EOF
         {

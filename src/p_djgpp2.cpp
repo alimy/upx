@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus@oberhumer.com      ml1050@users.sourceforge.net
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
@@ -31,11 +31,12 @@
 #include "filter.h"
 #include "packer.h"
 #include "p_djgpp2.h"
+#include "linker.h"
 
 static const
-#include "stub/l_djgpp2.h"
+#include "stub/i386-dos32.djgpp2.h"
 static const
-#include "stub/stubify.h"
+#include "stub/i386-dos32.djgpp2-stubify.h"
 
 
 /*************************************************************************
@@ -45,13 +46,14 @@ static const
 PackDjgpp2::PackDjgpp2(InputFile *f) :
     super(f), coff_offset(0)
 {
-    COMPILE_TIME_ASSERT(sizeof(external_scnhdr_t) == 40);
-    COMPILE_TIME_ASSERT(sizeof(coff_header_t) == 0xa8);
-    COMPILE_TIME_ASSERT(sizeof(stubify_stub) == 2048);
-    COMPILE_TIME_ASSERT_ALIGNOF(external_scnhdr_t, char)
-    COMPILE_TIME_ASSERT_ALIGNOF(coff_header_t, char)
-    COMPILE_TIME_ASSERT(STUBIFY_STUB_ADLER32 == 0xbf689ba8);
-    COMPILE_TIME_ASSERT(STUBIFY_STUB_CRC32   == 0x2ae982b2);
+    bele = &N_BELE_RTP::le_policy;
+    COMPILE_TIME_ASSERT(sizeof(external_scnhdr_t) == 40)
+    COMPILE_TIME_ASSERT(sizeof(coff_header_t) == 0xa8)
+    COMPILE_TIME_ASSERT_ALIGNED1(external_scnhdr_t)
+    COMPILE_TIME_ASSERT_ALIGNED1(coff_header_t)
+    COMPILE_TIME_ASSERT(sizeof(stub_i386_dos32_djgpp2_stubify) == 2048)
+    COMPILE_TIME_ASSERT(STUB_I386_DOS32_DJGPP2_STUBIFY_ADLER32 == 0xbf689ba8)
+    COMPILE_TIME_ASSERT(STUB_I386_DOS32_DJGPP2_STUBIFY_CRC32   == 0x2ae982b2)
     //printf("0x%08x\n", upx_adler32(stubify_stub, sizeof(stubify_stub)));
     //assert(upx_adler32(stubify_stub, sizeof(stubify_stub)) == STUBIFY_STUB_ADLER32);
 }
@@ -66,30 +68,40 @@ const int *PackDjgpp2::getCompressionMethods(int method, int level) const
 const int *PackDjgpp2::getFilters() const
 {
     static const int filters[] = {
-        0x26, 0x24, 0x11, 0x14, 0x13, 0x16, 0x25, 0x15, 0x12,
-    -1 };
+        0x26, 0x24, 0x49, 0x46, 0x16, 0x13, 0x14, 0x11,
+        FT_ULTRA_BRUTE, 0x25, 0x15, 0x12,
+    FT_END };
     return filters;
 }
 
 
 unsigned PackDjgpp2::findOverlapOverhead(const upx_bytep buf,
+                                         const upx_bytep tbuf,
                                          unsigned range,
                                          unsigned upper_limit) const
 {
-    unsigned o = super::findOverlapOverhead(buf, range, upper_limit);
+    unsigned o = super::findOverlapOverhead(buf, tbuf, range, upper_limit);
     o = (o + 0x3ff) &~ 0x1ff;
     return o;
 }
 
 
-int PackDjgpp2::buildLoader(const Filter *ft)
+Linker* PackDjgpp2::newLinker() const
+{
+    return new ElfLinkerX86;
+}
+
+
+void PackDjgpp2::buildLoader(const Filter *ft)
 {
     // prepare loader
-    initLoader(nrv_loader, sizeof(nrv_loader));
+    initLoader(stub_i386_dos32_djgpp2, sizeof(stub_i386_dos32_djgpp2));
     addLoader("IDENTSTR,DJ2MAIN1",
               ft->id ? "DJCALLT1" : "",
-              "DJ2MAIN2",
-              getDecompressor(),
+              ph.first_offset_found == 1 ? "DJ2MAIN2" : "",
+              M_IS_LZMA(ph.method) ? "LZMA_INIT_STACK" : "",
+              getDecompressorSections(),
+              M_IS_LZMA(ph.method) ? "LZMA_DONE_STACK" : "",
               "DJ2BSS00",
               NULL
              );
@@ -99,8 +111,7 @@ int PackDjgpp2::buildLoader(const Filter *ft)
         addLoader("DJCALLT2", NULL);
         addFilter32(ft->id);
     }
-    addLoader("DJRETURN,+40DXXXX,UPX1HEAD", NULL);
-    return getLoaderSize();
+    addLoader("DJRETURN,+40C,UPX1HEAD", NULL);
 }
 
 
@@ -120,8 +131,8 @@ void PackDjgpp2::handleStub(OutputFile *fo)
         else
         {
             // "stubify" stub
-            info("Adding stub: %ld bytes", (long)sizeof(stubify_stub));
-            fo->write(stubify_stub, sizeof(stubify_stub));
+            info("Adding stub: %ld bytes", (long)sizeof(stub_i386_dos32_djgpp2_stubify));
+            fo->write(stub_i386_dos32_djgpp2_stubify, sizeof(stub_i386_dos32_djgpp2_stubify));
         }
     }
 }
@@ -290,33 +301,35 @@ void PackDjgpp2::pack(OutputFile *fo)
     ft.buf_len = usize - data->size;
     ft.addvalue = text->vaddr - hdrsize;
     // compress
-    compressWithFilters(&ft, 512);
+    upx_compress_config_t cconf; cconf.reset();
+    // limit stack size needed for runtime decompression
+    cconf.conf_lzma.max_num_probs = 1846 + (768 << 4); // ushort: ~28 KiB stack
+    compressWithFilters(&ft, 512, &cconf);
 
     // patch coff header #2
     const unsigned lsize = getLoaderSize();
+    assert(lsize % 4 == 0);
     text->size = lsize;                   // new size of .text
     data->size = ph.c_len;                // new size of .data
 
-    if (bss->size < ph.overlap_overhead)  // give it a .bss
-        bss->size = ph.overlap_overhead;
+    unsigned stack = 1024 + ph.overlap_overhead + getDecompressorWrkmemSize();
+    stack = ALIGN_UP(stack, 16u);
+    if (bss->size < stack)  // give it a .bss
+        bss->size = stack;
 
     text->scnptr = sizeof(coff_hdr);
     data->scnptr = text->scnptr + text->size;
     data->vaddr = bss->vaddr + ((data->scnptr + data->size) & 0x1ff) - data->size + ph.overlap_overhead - 0x200;
     coff_hdr.f_nscns = 3;
 
-    // prepare loader
-    MemBuffer loader(lsize);
-    memcpy(loader, getLoader(), lsize);
-
-    // patch loader
-    patchPackHeader(loader, lsize);
-    patch_le32(loader, lsize, "ENTR", coff_hdr.a_entry);
-    patchFilter32(loader, lsize, &ft);
-    patch_le32(loader, lsize, "BSSL", ph.overlap_overhead / 4);
+    linker->defineSymbol("original_entry", coff_hdr.a_entry);
+    linker->defineSymbol("length_of_bss", ph.overlap_overhead / 4);
+    defineDecompressorSymbols();
     assert(bss->vaddr == ((size + 0x1ff) &~ 0x1ff) + (text->vaddr &~ 0x1ff));
-    patch_le32(loader, lsize, "OUTP", text->vaddr - hdrsize);
-    patch_le32(loader, lsize, "INPP", data->vaddr);
+    linker->defineSymbol("stack_for_lzma", bss->vaddr + bss->size);
+    linker->defineSymbol("start_of_uncompressed", text->vaddr - hdrsize);
+    linker->defineSymbol("start_of_compressed", data->vaddr);
+    defineFilterSymbols(&ft);
 
     // we should not overwrite our decompressor during unpacking
     // the original coff header (which is put just before the
@@ -333,9 +346,19 @@ void PackDjgpp2::pack(OutputFile *fo)
     memcpy(obuf+data->size, "UPX", 3);
     data->size = ALIGN_UP(data->size, 4);
 
+    linker->defineSymbol("DJ2MAIN1", coff_hdr.a_entry);
+    relocateLoader();
+
+    // prepare loader
+    MemBuffer loader(lsize);
+    memcpy(loader, getLoader(), lsize);
+    patchPackHeader(loader, lsize);
+
     // write coff header, loader and compressed file
     fo->write(&coff_hdr, sizeof(coff_hdr));
     fo->write(loader, lsize);
+    if (opt->debug.dump_stub_loader)
+        OutputFile::dump(opt->debug.dump_stub_loader, loader, lsize);
     fo->write(obuf, data->size);
 #if 0
     printf("%-13s: coff hdr   : %8ld bytes\n", getName(), (long) sizeof(coff_hdr));
@@ -367,7 +390,7 @@ int PackDjgpp2::canUnpack()
     if (is_dlm(fi, coff_offset))
         throwCantUnpack("can't handle DLM");
     fi->seek(coff_offset, SEEK_SET);
-    return readPackHeader(1024) ? 1 : -1;
+    return readPackHeader(4096) ? 1 : -1;
 }
 
 

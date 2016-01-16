@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2010 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -22,12 +22,12 @@
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   <markus@oberhumer.com>               <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_EXCEPT_H
-#define __UPX_EXCEPT_H
+#define __UPX_EXCEPT_H 1
 
 #ifdef __cplusplus
 
@@ -204,10 +204,11 @@ public:
 // (noreturn) is probably not the correct semantics for throwing exceptions
 #define NORET __attribute__((__noreturn__))
 #else
-#define NORET
+#define NORET /*empty*/
 #endif
 
 void throwCantPack(const char *msg) NORET;
+void throwCantPackExact() NORET;
 void throwUnknownExecutableFormat(const char *msg = NULL, bool warn = false) NORET;
 void throwNotCompressible(const char *msg = NULL) NORET;
 void throwAlreadyPacked(const char *msg = NULL) NORET;
@@ -219,6 +220,7 @@ void throwBadLoader() NORET;
 void throwChecksumError() NORET;
 void throwCompressedDataViolation() NORET;
 void throwInternalError(const char *msg) NORET;
+void throwOutOfMemoryException(const char *msg = NULL) NORET;
 void throwIOException(const char *msg = NULL, int e = 0) NORET;
 void throwEOFException(const char *msg = NULL, int e = 0) NORET;
 
