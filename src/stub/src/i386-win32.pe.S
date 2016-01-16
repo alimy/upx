@@ -3,8 +3,8 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2011 Laszlo Molnar
+;  Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) 1996-2013 Laszlo Molnar
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -203,8 +203,8 @@ section         PEDEPHAK
   #endif
 
                 lea     eax, [edi + swri]
-                andb    [eax], 0x7f             // marks UPX0 non writeable
-                andb    [eax + 0x28], 0x7f      // marks UPX1 non writeable
+                andb    [eax], 0x7f             // marks UPX0 non writable
+                andb    [eax + 0x28], 0x7f      // marks UPX1 non writable
 
   #if 0
                 push    esp

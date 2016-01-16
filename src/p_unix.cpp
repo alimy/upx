@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2011 Laszlo Molnar
+   Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2013 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -130,7 +130,7 @@ int PackUnix::getStrategy(Filter &/*ft*/)
     return (opt->no_filter ? -3 : ((opt->filter > 0) ? -2 : 2));
 }
 
-void PackUnix::pack2(OutputFile *fo, Filter &ft)
+int PackUnix::pack2(OutputFile *fo, Filter &ft)
 {
     // compress blocks
     unsigned total_in = 0;
@@ -142,6 +142,7 @@ void PackUnix::pack2(OutputFile *fo, Filter &ft)
 //        ui_total_passes = 0;
 
     unsigned remaining = file_size;
+    unsigned n_block = 0;
     while (remaining > 0)
     {
         // FIXME: disable filters if we have more than one block.
@@ -170,7 +171,8 @@ void PackUnix::pack2(OutputFile *fo, Filter &ft)
         // that is, AFTER filtering.  We want BEFORE filtering,
         // so that decompression checks the end-to-end checksum.
         unsigned const end_u_adler = upx_adler32(ibuf, ph.u_len, ph.u_adler);
-        compressWithFilters(&ft, OVERHEAD, NULL_cconf, filter_strategy);
+        compressWithFilters(&ft, OVERHEAD, NULL_cconf, filter_strategy,
+            !!n_block++);  // check compression ratio only on first block
 
         if (ph.c_len < ph.u_len) {
             const upx_bytep tbuf = NULL;
@@ -222,6 +224,8 @@ void PackUnix::pack2(OutputFile *fo, Filter &ft)
     if ((off_t)total_in != file_size) {
         throwEOFException();
     }
+
+    return 1;  // default: write end-of-compression bhdr next
 }
 
 void
@@ -283,12 +287,13 @@ void PackUnix::pack(OutputFile *fo)
     set_te32(&hbuf.p_blocksize, blocksize);
     fo->write(&hbuf, sizeof(hbuf));
 
-    pack2(fo, ft);  // append the compressed body
-
-    // write block end marker (uncompressed size 0)
-    b_info hdr; memset(&hdr, 0, sizeof(hdr));
-    set_le32(&hdr.sz_cpr, UPX_MAGIC_LE32);
-    fo->write(&hdr, sizeof(hdr));
+    // append the compressed body
+    if (pack2(fo, ft)) {
+        // write block end marker (uncompressed size 0)
+        b_info hdr; memset(&hdr, 0, sizeof(hdr));
+        set_le32(&hdr.sz_cpr, UPX_MAGIC_LE32);
+        fo->write(&hdr, sizeof(hdr));
+    }
 
     pack3(fo, ft);  // append loader
 
@@ -498,18 +503,26 @@ void PackUnix::unpackExtent(unsigned wanted, OutputFile *fo,
 
 int PackUnix::canUnpack()
 {
-    upx_byte buf[sizeof(overlay_offset) + 32];
-    const int bufsize = sizeof(buf);
+    int const small = 32 + sizeof(overlay_offset);
+    // Allow zero-filled last page, for Mac OS X code signing.
+    int bufsize = 2*4096 + 2*small +1;
+    if (bufsize > fi->st_size())
+        bufsize = fi->st_size();
+    MemBuffer buf(bufsize);
 
     fi->seek(-bufsize, SEEK_END);
     fi->readx(buf, bufsize);
-    if (!getPackHeader(buf, bufsize, true))  // allow incompressible extents
+    int i = bufsize;
+    while (i > small && 0 == buf[--i]) { }
+    i -= small;
+    // allow incompressible extents
+    if (i < 0 || !getPackHeader(buf + i, bufsize - i, true))
         return false;
 
     int l = ph.buf_offset + ph.getPackHeaderSize();
     if (l < 0 || l + 4 > bufsize)
         throwCantUnpack("file corrupted");
-    overlay_offset = get_te32(buf+l);
+    overlay_offset = get_te32(buf + i + l);
     if ((off_t)overlay_offset >= file_size)
         throwCantUnpack("file corrupted");
 

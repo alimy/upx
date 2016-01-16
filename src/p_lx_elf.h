@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2011 Laszlo Molnar
-   Copyright (C) 2000-2011 John F. Reiser
+   Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2013 Laszlo Molnar
+   Copyright (C) 2000-2013 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -50,7 +50,7 @@ protected:
     // because they depend on Elf32 or Elf64 data structures, which differ.
 
     virtual void pack1(OutputFile *, Filter &) = 0;  // generate executable header
-    virtual void pack2(OutputFile *, Filter &) = 0;  // append compressed data
+    virtual int  pack2(OutputFile *, Filter &) = 0;  // append compressed data
     virtual void pack3(OutputFile *, Filter &) = 0;  // append loader
     //virtual void pack4(OutputFile *, Filter &) = 0;  // append pack header
 
@@ -88,6 +88,10 @@ protected:
     unsigned char ei_data;
     unsigned char ei_osabi;
     char const *osabi_note;
+
+    unsigned char const *buildid_data;
+    int o_elf_shnum; // num output Shdrs
+    static unsigned char o_shstrtab[];
 };
 
 class PackLinuxElf32 : public PackLinuxElf
@@ -107,7 +111,7 @@ protected:
     virtual int  ARM_is_QNX(void);
 
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
-    virtual void pack2(OutputFile *, Filter &);  // append compressed data
+    virtual int  pack2(OutputFile *, Filter &);  // append compressed data
     virtual void pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append pack header
     virtual void unpack(OutputFile *fo);
@@ -186,6 +190,12 @@ protected:
 
     cprElfHdrNetBSD elfout;
 
+    __packed_struct(cprElfShdr3)
+        Elf32_Shdr shdr[3];
+    __packed_struct_end()
+
+    cprElfShdr3 shdrout;
+
     struct Elf32_Nhdr {
         unsigned namesz;
         unsigned descsz;
@@ -218,7 +228,7 @@ protected:
     virtual int checkEhdr(Elf64_Ehdr const *ehdr) const;
 
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
-    virtual void pack2(OutputFile *, Filter &);  // append compressed data
+    virtual int  pack2(OutputFile *, Filter &);  // append compressed data
     virtual void pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append pack header
     virtual void unpack(OutputFile *fo);
@@ -292,6 +302,12 @@ protected:
     __packed_struct_end()
 
     cprElfHdr4 elfout;
+
+    __packed_struct(cprElfShdr3)
+        Elf64_Shdr shdr[3];
+    __packed_struct_end()
+
+    cprElfShdr3 shdrout;
 
     static void compileTimeAssertions() {
         COMPILE_TIME_ASSERT(sizeof(cprElfHdr1) == 64 + 1*56 + 12)

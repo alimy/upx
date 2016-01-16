@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2011 Laszlo Molnar
+   Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2013 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -146,6 +146,7 @@ struct options_t {
         unsigned char osabi0;       // replacement if 0==.e_ident[EI_OSABI]
         enum { SCRIPT_MAX = 32 };
         const char *script_name;
+        bool preserve_build_id;     // copy the build-id to the compressed binary
     } o_unix;
     struct {
         bool le;

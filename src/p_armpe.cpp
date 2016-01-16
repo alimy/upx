@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2011 Laszlo Molnar
+   Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2013 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -599,7 +599,7 @@ void PackArmPe::pack(OutputFile *fo)
         if (((isection[ic].flags & (PEFL_WRITE|PEFL_SHARED))
             == (PEFL_WRITE|PEFL_SHARED)))
             if (!opt->force)
-                throwCantPack("writeable shared sections not supported (try --force)");
+                throwCantPack("writable shared sections not supported (try --force)");
         if (jc && isection[ic].rawdataptr - jc > ih.filealign)
             throwCantPack("superfluous data between sections");
         fi->seek(isection[ic].rawdataptr,SEEK_SET);

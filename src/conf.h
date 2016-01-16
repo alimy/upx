@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2011 Laszlo Molnar
+   Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2013 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -222,19 +222,14 @@
 #if (WITH_VALGRIND)
 #  include <valgrind/memcheck.h>
 #endif
-
-#if !defined(VALGRIND_MAKE_WRITABLE)
-#  define VALGRIND_MAKE_WRITABLE(addr,len)      0
+#if !defined(VALGRIND_MAKE_MEM_DEFINED)
+#  define VALGRIND_MAKE_MEM_DEFINED(addr,len)   0
 #endif
-#if !defined(VALGRIND_MAKE_READABLE)
-#  if 0
-#    define VALGRIND_MAKE_READABLE(addr,len)    (memset(addr,0,len), 0)
-#  else
-#    define VALGRIND_MAKE_READABLE(addr,len)    0
-#  endif
+#if !defined(VALGRIND_MAKE_MEM_NOACCESS)
+#  define VALGRIND_MAKE_MEM_NOACCESS(addr,len)  0
 #endif
-#if !defined(VALGRIND_DISCARD)
-#  define VALGRIND_DISCARD(handle)              ((void)(&handle))
+#if !defined(VALGRIND_MAKE_MEM_UNDEFINED)
+#  define VALGRIND_MAKE_MEM_UNDEFINED(addr,len) 0
 #endif
 
 

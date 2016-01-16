@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2011 Laszlo Molnar
-   Copyright (C) 2001-2011 John F. Reiser
+   Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2013 Laszlo Molnar
+   Copyright (C) 2001-2013 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -449,7 +449,7 @@ int PackLinuxI386::getLoaderPrefixSize() const
 // some ELF utitlity functions
 **************************************************************************/
 
-// basic check of an Linux ELF Ehdr
+// basic check of a Linux ELF Ehdr
 int PackLinuxI386::checkEhdr(const Elf_LE32_Ehdr *ehdr) const
 {
     const unsigned char * const buf = ehdr->e_ident;

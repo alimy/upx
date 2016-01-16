@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2011 Laszlo Molnar
-   Copyright (C) 2000-2011 John F. Reiser
+   Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2013 Laszlo Molnar
+   Copyright (C) 2000-2013 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -35,7 +35,7 @@
 
 #include "include/linux.h"
 void *mmap(void *, size_t, int, int, int, off_t);
-#if defined(__i386__)  //{
+#if defined(__i386__) || defined(__mips__) //{
 #  define mmap_privanon(addr,len,prot,flgs) mmap((addr),(len),(prot), \
         MAP_PRIVATE|MAP_ANONYMOUS|(flgs),-1,0)
 #else  //}{
@@ -111,8 +111,8 @@ unsimal(unsigned x, char *ptr, int n)
 {
     if (10<=x) {
         unsigned const q = div10(x);
-        n = unsimal(q, ptr, n);
         x -= 10 * q;
+        n = unsimal(q, ptr, n);
     }
     ptr[n] = '0' + x;
     return 1+ n;
@@ -122,8 +122,8 @@ static int
 decimal(int x, char *ptr, int n)
 {
     if (x < 0) {
-        *ptr++ = '-'; ++n;
         x = -x;
+        ptr[n++] = '-';
     }
     return unsimal(x, ptr, n);
 }
@@ -756,7 +756,11 @@ void *upx_main(
     //auxv_up(av, AT_PAGESZ, PAGE_SIZE);  /* ld-linux.so.2 does not need this */
     auxv_up(av, AT_PHNUM , ehdr->e_phnum);
     auxv_up(av, AT_PHENT , ehdr->e_phentsize);
-    auxv_up(av, AT_PHDR  , dynbase + (unsigned)(1+(Elf32_Ehdr *)phdr->p_vaddr));
+    {
+        Elf32_Phdr const *zhdr = phdr;
+        while (PT_LOAD!=zhdr->p_type) ++zhdr;  // skip ARM PT_EXIDX and others
+        auxv_up(av, AT_PHDR  , dynbase + (unsigned)(1+(Elf32_Ehdr *)zhdr->p_vaddr));
+    }
     // AT_PHDR.a_un.a_val  is set again by do_xmap if PT_PHDR is present.
     // This is necessary for ET_DYN if|when we override a prelink address.
 

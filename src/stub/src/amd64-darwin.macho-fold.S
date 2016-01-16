@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2011 Laszlo Molnar
-*  Copyright (C) 2000-2011 John F. Reiser
+*  Copyright (C) 1996-2013 Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) 1996-2013 Laszlo Molnar
+*  Copyright (C) 2000-2013 John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -86,6 +86,8 @@ SYS_munmap   =0x49
 SYS_mprotect =0x4a
 
 // lazy jmps enable compression of this code
+write: .globl write
+        mov $SYS_write,%al;  jmp 2+ 0f; 0:
 exit: .globl exit
         mov $SYS_exit,%al;  jmp 2+ 0f; 0:
 mprotect: .globl mprotect
