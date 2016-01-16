@@ -397,13 +397,7 @@ static int s_ct32_e8e9_bswap_be(filter_t *f)
 // tries to change actual calls and/or jumps.
 **************************************************************************/
 
-#if 1
-// use Laszlo's implementation
-#include "fcto_ml.ch"
-#else
-// use Marco's implementation
-#include "fcto_mfx.ch"
-#endif
+#include "fcto.ch"
 
 
 /*************************************************************************
@@ -445,7 +439,7 @@ const FilterImp::f_t FilterImp::filters[] = {
     { 0x29, 6, 0x00ffffff, f_cto32_e8e9_bswap_be, u_cto32_e8e9_bswap_be, s_cto32_e8e9_bswap_be },
 };
 
-const int FilterImp::n_filters = HIGH(filters);
+const int FilterImp::n_filters = TABLESIZE(filters);
 
 
 /*

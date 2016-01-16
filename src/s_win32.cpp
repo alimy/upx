@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -28,7 +28,7 @@
 
 #include "conf.h"
 
-#if defined(USE_SCREEN) && defined(__MFX_WIN32)
+#if defined(USE_SCREEN_WIN32)
 
 #include "screen.h"
 
@@ -42,6 +42,15 @@
 // direct screen access
 **************************************************************************/
 
+#if (ACC_CC_MSC && (_MSC_VER >= 1000 && _MSC_VER < 1200))
+   /* avoid -W4 warnings in <conio.h> */
+#  pragma warning(disable: 4032)
+   /* avoid -W4 warnings in <windows.h> */
+#  pragma warning(disable: 4201 4214 4514)
+#endif
+#if defined(__RSXNT__)
+#  define timeval win32_timeval  /* struct timeval already in <sys/time.h> */
+#endif
 #include <windows.h>
 #if defined(HAVE_CONIO_H)
 #  include <conio.h>
@@ -285,7 +294,7 @@ static int init(screen_t *this, int fd)
     this->data->hi = INVALID_HANDLE_VALUE;
     this->data->ho = INVALID_HANDLE_VALUE;
     this->data->mode = -1;
-    if (fd < 0 || !isatty(fd))
+    if (fd < 0 || !acc_isatty(fd))
         return -1;
 
     hi = GetStdHandle(STD_INPUT_HANDLE);
@@ -439,15 +448,16 @@ static int getScrollCounter(const screen_t *this)
 
 static int s_kbhit(screen_t *this)
 {
-#if defined(HAVE_CONIO_H)
     UNUSED(this);
-# if defined(__BORLANDC__)
+#if defined(HAVE_CONIO_H)
+# if defined(__RSXNT__)
+    return 0;
+# elif defined(__BORLANDC__) || defined(__WATCOMC__)
     return kbhit();
 # else
     return _kbhit();
 # endif
 #else
-    UNUSED(this);
     return 0;
 #endif
 }
@@ -516,7 +526,7 @@ screen_t *screen_win32_construct(void)
 }
 
 
-#endif /* defined(USE_SCREEN) && defined(__MFX_WIN32) */
+#endif /* defined(USE_SCREEN) && (ACC_OS_WIN32 || ACC_OS_WIN64) */
 
 
 /*

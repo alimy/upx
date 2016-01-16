@@ -72,9 +72,9 @@
 
 #undef LLONG
 #undef ULLONG
-#if 1 && defined(upx_int64l)
-#  define LLONG     upx_int64l
-#  define ULLONG    upx_uint64l
+#if 1 && defined(acc_int64l_t)
+#  define LLONG     acc_int64l_t
+#  define ULLONG    acc_uint64l_t
 #else
 #  define LLONG     long int
 #  define ULLONG    unsigned long int
@@ -700,17 +700,17 @@ static size_t dopr(char *buffer, size_t maxlen, const char *format, va_list args
                 dopr_outch (buffer, &currlen, maxlen, va_arg (args, int));
                 break;
             case 's':
-                strvalue = va_arg (args, char *);
+                strvalue = va_arg (args, const char *);
                 if (!strvalue) strvalue = "(NULL)";
                 if (max == -1) {
-                    max = strlen(strvalue);
+                    max = (int) strlen(strvalue);
                 }
                 if (min > 0 && max >= 0 && min > max) max = min;
                 fmtstr (buffer, &currlen, maxlen, strvalue, flags, min, max);
                 break;
             case 'p':
-                strvalue = (const char *) va_arg (args, void *);
-                fmtint (buffer, &currlen, maxlen, (long) strvalue, 16, min, max, flags);
+                strvalue = (const char *) va_arg (args, const void *);
+                fmtint (buffer, &currlen, maxlen, (LLONG) (acc_uintptr_t) strvalue, 16, min, max, flags);
                 break;
             case 'n':
                 if (cflags == DP_C_SHORT) {
@@ -728,7 +728,7 @@ static size_t dopr(char *buffer, size_t maxlen, const char *format, va_list args
                 } else {
                     int *num;
                     num = va_arg (args, int *);
-                    *num = currlen;
+                    *num = (int) currlen;
                 }
                 break;
             case '%':
@@ -775,6 +775,7 @@ static int xdopr(char *buffer, size_t maxlen, const char *format, va_list args)
     size_t ret;
 
     // preconditions
+    assert(maxlen < INT_MAX);
     if (buffer != NULL)
         assert((int)maxlen > 0);
     else
@@ -794,13 +795,13 @@ static int xdopr(char *buffer, size_t maxlen, const char *format, va_list args)
 }
 
 
-int upx_vsnprintf(char *str, size_t count, const char *format, va_list ap)
+int __acc_cdecl upx_vsnprintf(char *str, size_t count, const char *format, va_list ap)
 {
     return xdopr(str, count, format, ap);
 }
 
 
-int upx_snprintf(char *str, size_t count, const char *format,...)
+int __acc_cdecl_va upx_snprintf(char *str, size_t count, const char *format,...)
 {
     va_list ap;
     int ret;
@@ -812,7 +813,7 @@ int upx_snprintf(char *str, size_t count, const char *format,...)
 }
 
 
-int upx_vasprintf(char **ptr, const char *format, va_list ap)
+int __acc_cdecl upx_vasprintf(char **ptr, const char *format, va_list ap)
 {
     int ret;
 
@@ -831,7 +832,7 @@ int upx_vasprintf(char **ptr, const char *format, va_list ap)
 }
 
 
-int upx_asprintf(char **ptr, const char *format, ...)
+int __acc_cdecl_va upx_asprintf(char **ptr, const char *format, ...)
 {
     va_list ap;
     int ret;

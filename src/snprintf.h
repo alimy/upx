@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -38,10 +38,10 @@ extern "C" {
 //
 **************************************************************************/
 
-int upx_vsnprintf(char *str, size_t count, const char *format, va_list ap);
-int upx_snprintf(char *str, size_t count, const char *format,...);
-int upx_vasprintf(char **ptr, const char *format, va_list ap);
-int upx_asprintf(char **ptr, const char *format, ...);
+int __acc_cdecl    upx_vsnprintf(char *str, size_t count, const char *format, va_list ap);
+int __acc_cdecl_va upx_snprintf(char *str, size_t count, const char *format,...);
+int __acc_cdecl    upx_vasprintf(char **ptr, const char *format, va_list ap);
+int __acc_cdecl_va upx_asprintf(char **ptr, const char *format, ...);
 
 #if 1
 #  undef sprintf

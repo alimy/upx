@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -88,7 +88,7 @@ static screen_t *do_construct(screen_t *s, int fd)
 
 static screen_t *screen = NULL;
 
-static void do_destroy(void)
+static void __acc_cdecl_atexit do_destroy(void)
 {
     if (screen)
     {
@@ -130,7 +130,7 @@ static int init(FILE *f, int o, int now)
     if (!screen)
         screen = do_construct(screen_djgpp2_construct(),fd);
 #endif
-#if defined(__MFX_WIN32)
+#if defined(USE_SCREEN_WIN32)
     if (!screen)
         screen = do_construct(screen_win32_construct(),fd);
 #endif

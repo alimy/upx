@@ -2,8 +2,16 @@
 User visible changes for UPX
 ==================================================================
 
-Changes in 1.24 (07 Nov 2002)
+Changes in 1.25 (29 Jun 2004)
   * INFO: http://upx.sourceforge.net is the permanent UPX home page
+  * watcom/le: don't crash on files without relocations
+  * win32/pe: stricter checks of some PE values
+  * source code: much improved portability using ACC, the
+    Automatic Compiler Configuration
+  * source code: compile fixes for strict ISO C++ compilers
+  * source code: compile fixes for Win64
+
+Changes in 1.24 (07 Nov 2002)
   * djgpp2/coff: stricter check of the COFF header to work around a
     problem with certain binutils versions
 
@@ -19,8 +27,8 @@ Changes in 1.23 (05 Sep 2002)
 Changes in 1.22 (27 Jun 2002)
   * atari/tos: the stub now flushes the CPU cache to avoid
     problems on 68030+ machines
-  * source code: additional compiler support for Borland C++ 5.5.1,
-    Digital Mars C++ 8.28 and Watcom C++ 11.0c
+  * source code: additional compiler support for Borland C++,
+    Digital Mars C++ and Watcom C++
 
 Changes in 1.21 (01 Jun 2002)
   * New option `--crp-ms=' for slightly better compression at the cost

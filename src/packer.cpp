@@ -55,6 +55,7 @@ Packer::Packer(InputFile *f) :
     uip = new UiPacker(this);
     memset(&ph,0,sizeof(ph));
     linker = NULL;
+    ibuf_size = obuf_size = loader_size = wrkmem_size = 0;
 }
 
 

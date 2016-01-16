@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -81,7 +81,7 @@ static int do_init(FILE *f)
     if (opt->console == CON_NONE || opt->to_stdout)
         return con_mode;
     try_init(&console_file,f);
-    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO) || !isatty(STDERR_FILENO))
+    if (!acc_isatty(STDIN_FILENO) || !acc_isatty(STDOUT_FILENO) || !acc_isatty(STDERR_FILENO))
         return con_mode;
 
 #if defined(USE_ANSI)
@@ -142,7 +142,7 @@ console_t console_init =
 };
 
 
-void con_fprintf(FILE *f, const char *format, ...)
+void __acc_cdecl_va con_fprintf(FILE *f, const char *format, ...)
 {
     va_list args;
     char buf[80*25];

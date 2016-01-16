@@ -370,14 +370,14 @@ bool PackTos::canPack()
     if (!readFileHeader())
         return false;
 
-    unsigned char buf[512];
+    unsigned char buf[768];
     fi->readx(buf,sizeof(buf));
     if (pfind_le32(buf,sizeof(buf),UPX_MAGIC_LE32))
         throwAlreadyPacked();
 
     if (!checkFileHeader())
         throwCantPack("unsupported header flags");
-    if (file_size < 256)
+    if (file_size < 1024)
         throwCantPack("program too small");
     return true;
 }

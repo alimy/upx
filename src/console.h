@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -34,8 +34,9 @@
 #undef USE_CONSOLE
 #undef USE_ANSI
 #undef USE_SCREEN
-#undef USE_SCREEN_VCSA
 #undef USE_SCREEN_CURSES
+#undef USE_SCREEN_VCSA
+#undef USE_SCREEN_WIN32
 #undef USE_FRAMES
 
 #if defined(WITH_GUI) && !defined(NO_CONSOLE)
@@ -57,10 +58,12 @@
 
 #if 1 && defined(__DJGPP__)
 #  define USE_SCREEN
-#endif
-
-#if 1 && defined(__MFX_WIN32)
+#elif 1 && (ACC_OS_CYGWIN || ACC_OS_WIN32 || ACC_OS_WIN64)
 #  define USE_SCREEN
+#  define USE_SCREEN_WIN32
+#elif 1 && (ACC_OS_EMX && defined(__RSXNT__))
+#  define USE_SCREEN
+#  define USE_SCREEN_WIN32
 #endif
 
 
@@ -120,10 +123,10 @@ console_t;
 
 
 #if defined(__GNUC__)
-void con_fprintf(FILE *f, const char *format, ...)
-        __attribute__((format(printf,2,3)));
+void __acc_cdecl_va con_fprintf(FILE *f, const char *format, ...)
+        __attribute__((__format__(printf,2,3)));
 #else
-void con_fprintf(FILE *f, const char *format, ...);
+void __acc_cdecl_va con_fprintf(FILE *f, const char *format, ...);
 #endif
 
 

@@ -218,6 +218,7 @@ protected:
     upx_byte *obuf;         // output
     upx_byte *loader;
     upx_byte *wrkmem;       // misc. memory
+    unsigned ibuf_size, obuf_size, loader_size, wrkmem_size;
 
     // UI handler
     UiPacker *uip;

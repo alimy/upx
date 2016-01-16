@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -88,7 +88,7 @@ static void pr_error(const char *iname, const char *msg, bool is_warning)
     // This hack is needed, otherwise error messages may get lost
     // when the cursor is not yet at the bottom of the screen.
     // At least I can use some colors then...
-    bool c = isatty(STDERR_FILENO) ? 1 : 0;
+    bool c = acc_isatty(STDERR_FILENO) ? 1 : 0;
 
     int fg = con_fg(stderr,FG_BRTRED);
     upx_snprintf(buf+strlen(buf),sizeof(buf)-strlen(buf),"%s: ", progname);
@@ -103,23 +103,35 @@ static void pr_error(const char *iname, const char *msg, bool is_warning)
     fg = con_fg(stderr,fg);
 
     UNUSED(is_warning);
+    UNUSED(fg);
 }
 
 
 void printErr(const char *iname, const Throwable *e)
 {
     char buf[1024];
+    size_t l;
 
-    upx_snprintf(buf, sizeof(buf), "%s", prettyName(typeid(*e)));
-    if (e->getMsg())
-        upx_snprintf(buf+strlen(buf),sizeof(buf)-strlen(buf),": %s", e->getMsg());
-    if (e->getErrno())
-        upx_snprintf(buf+strlen(buf),sizeof(buf)-strlen(buf),": %s", strerror(e->getErrno()));
+    upx_snprintf(buf, sizeof(buf), "%s", prettyName(typeid(*e).name()));
+    l = strlen(buf);
+    if (l < sizeof(buf) && e->getMsg())
+        upx_snprintf(buf+l, sizeof(buf)-l, ": %s", e->getMsg());
+    l = strlen(buf);
+    if (l < sizeof(buf) && e->getErrno()) {
+        upx_snprintf(buf+l, sizeof(buf)-l, ": %s", strerror(e->getErrno()));
+#if 1
+        // some compilers (e.g. Borland C++) put a trailing '\n'
+        // into strerror() result
+        l = strlen(buf);
+        while (l-- > 0 && (buf[l] == '\n' || buf[l] == ' '))
+            buf[l] = 0;
+#endif
+    }
     pr_error(iname,buf,e->isWarning());
 }
 
 
-void printErr(const char *iname, const char *format, ...)
+void __acc_cdecl_va printErr(const char *iname, const char *format, ...)
 {
     va_list args;
     char buf[1024];
@@ -132,7 +144,7 @@ void printErr(const char *iname, const char *format, ...)
 }
 
 
-void printWarn(const char *iname, const char *format, ...)
+void __acc_cdecl_va printWarn(const char *iname, const char *format, ...)
 {
     va_list args;
     char buf[1024];
@@ -189,7 +201,7 @@ void infoHeader()
     info_header = 0;
 }
 
-void infoHeader(const char *format, ...)
+void __acc_cdecl_va infoHeader(const char *format, ...)
 {
     if (opt->info_mode <= 0)
         return;
@@ -203,7 +215,7 @@ void infoHeader(const char *format, ...)
 }
 
 
-void info(const char *format, ...)
+void __acc_cdecl_va info(const char *format, ...)
 {
     if (opt->info_mode <= 0)
         return;
@@ -218,7 +230,7 @@ void info(const char *format, ...)
 }
 
 
-void infoWarning(const char *format, ...)
+void __acc_cdecl_va infoWarning(const char *format, ...)
 {
     if (opt->info_mode <= 0)
     {

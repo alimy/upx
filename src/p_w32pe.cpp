@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -63,7 +63,7 @@ static const
 
 #if defined(__BORLANDC__)
 #  undef strcpy
-#  define strcpy(a,b)   std::strcpy((char *)(a),(const char *)(b))
+#  define strcpy(a,b)   strcpy((char *)(a),(const char *)(b))
 #endif
 
 
@@ -78,6 +78,47 @@ static bool ustrsame(const void *s1, const void *s2)
 }
 
 
+#if (__ACC_CXX_HAVE_PLACEMENT_DELETE) || defined(__DJGPP__)
+#include "bptr.h"
+#define IPTR(type, var)         BoundedPtr<type> var(ibuf, ibuf_size)
+#define OPTR(type, var)         BoundedPtr<type> var(obuf, obuf_size)
+#define IPTR_I(type, var, v)    BoundedPtr<type> var(ibuf, ibuf_size, v)
+#define OPTR_I(type, var, v)    BoundedPtr<type> var(obuf, obuf_size, v)
+#define IPTR_C(type, var, v)    const BoundedPtr<type> var(ibuf, ibuf_size, v)
+#define OPTR_C(type, var, v)    const BoundedPtr<type> var(obuf, obuf_size, v)
+#else
+#define IPTR(type, var)         type* var = 0
+#define OPTR(type, var)         type* var = 0
+#define IPTR_I(type, var, v)    type* var = (v)
+#define OPTR_I(type, var, v)    type* var = (v)
+#define IPTR_C(type, var, v)    type* const var = (v)
+#define OPTR_C(type, var, v)    type* const var = (v)
+#endif
+
+static void xcheck(const void *p, size_t plen, const void *b, size_t blen)
+{
+    const char *pp = (const char *) p;
+    const char *bb = (const char *) b;
+    if (pp < bb || pp > bb + blen || pp + plen > bb + blen)
+        throwCantUnpack("pointer out of range; take care!");
+}
+#if 0
+static void xcheck(size_t poff, size_t plen, const void *b, size_t blen)
+{
+    ACC_UNUSED(b);
+    if (poff > blen || poff + plen > blen)
+        throwCantUnpack("pointer out of range; take care!");
+}
+#endif
+#define ICHECK(x, size)     xcheck(x, size, ibuf, ibuf_size)
+#define OCHECK(x, size)     xcheck(x, size, obuf, obuf_size)
+
+#define imemset(a,b,c)      ICHECK(a,c), memset(a,b,c)
+#define omemset(a,b,c)      OCHECK(a,c), memset(a,b,c)
+#define imemcpy(a,b,c)      ICHECK(a,c), memcpy(a,b,c)
+#define omemcpy(a,b,c)      OCHECK(a,c), memcpy(a,b,c)
+
+
 /*************************************************************************
 //
 **************************************************************************/
@@ -88,7 +129,7 @@ PackW32Pe::PackW32Pe(InputFile *f) : super(f)
     //printf("pe_section_t %d\n", (int) sizeof(pe_section_t));
     COMPILE_TIME_ASSERT(sizeof(pe_header_t) == 248);
     COMPILE_TIME_ASSERT(sizeof(pe_section_t) == 40);
-    COMPILE_TIME_ASSERT(RT_LAST == HIGH(opt->w32pe.compress_rt));
+    COMPILE_TIME_ASSERT(RT_LAST == TABLESIZE(opt->w32pe.compress_rt));
 
     // Make sure that we use a "blessed" stub for the official builds, so
     // that we don't get problems with braindead virus scanners/monitors.
@@ -216,7 +257,7 @@ public:
 
     unsigned ivnum;
 
-    Interval(void *b) : capacity(0),base(b),ivarr(0),ivnum(0) {}
+    Interval(void *b) : capacity(0),base(b),ivarr(NULL),ivnum(0) {}
     ~Interval() {free(ivarr);}
 
     void add(unsigned start,unsigned len);
@@ -229,7 +270,7 @@ public:
     void dump() const;
 
 private:
-    static int compare(const void *p1,const void *p2)
+    static int __acc_cdecl_qsort compare(const void *p1,const void *p2)
     {
         const interval *i1 = (const interval*) p1;
         const interval *i2 = (const interval*) p2;
@@ -325,7 +366,8 @@ public:
     void finish(upx_byte *&p,unsigned &size);
 };
 
-Reloc::Reloc(upx_byte *s,unsigned si) : start(s), size(si), rel(0)
+Reloc::Reloc(upx_byte *s,unsigned si) :
+    start(s), size(si), rel(NULL), rel1(NULL)
 {
     COMPILE_TIME_ASSERT(sizeof(reloc) == 8);
     memset(counts,0,sizeof(counts));
@@ -334,7 +376,8 @@ Reloc::Reloc(upx_byte *s,unsigned si) : start(s), size(si), rel(0)
         counts[type]++;
 }
 
-Reloc::Reloc(unsigned rnum) : rel(0)
+Reloc::Reloc(unsigned rnum) :
+    start(NULL), size(0), rel(NULL), rel1(NULL)
 {
     start = new upx_byte[rnum * 4 + 8192];
     counts[0] = 0;
@@ -514,7 +557,7 @@ unsigned PackW32Pe::processImports() // pass 1
         bool       isk32;
         unsigned   _;           // padding to 32
 
-        static int compare(const void *p1, const void *p2)
+        static int __acc_cdecl_qsort compare(const void *p1, const void *p2)
         {
             const udll *u1 = * (const udll * const *) p1;
             const udll *u2 = * (const udll * const *) p2;
@@ -1063,13 +1106,13 @@ class Resource
         upx_byte        *name;
         upx_rnode       *parent;
     };
-    struct upx_rbranch : upx_rnode
+    struct upx_rbranch : public upx_rnode
     {
         unsigned        nc;
         upx_rnode       **children;
         res_dir         data;
     };
-    struct upx_rleaf : upx_rnode
+    struct upx_rleaf : public upx_rnode
     {
         upx_rleaf       *next;
         unsigned        newoffset;
@@ -1395,6 +1438,7 @@ void PackW32Pe::processResources(Resource *res)
 
         set_le32(ores,res->offs()); // save original offset
         ores += 4;
+        ICHECK(ibuf + res->offs(), res->size());
         memcpy(ores,ibuf + res->offs(),res->size());
         memset(ibuf + res->offs(),FILLVAL,res->size());
         res->newoffs() = ptr_diff(ores,oresources);
@@ -1540,7 +1584,8 @@ void PackW32Pe::pack(OutputFile *fo)
     handleStub(fi,fo,pe_offset);
     const unsigned usize = ih.imagesize;
     const unsigned xtrasize = 65536+IDSIZE(PEDIR_IMPORT)+IDSIZE(PEDIR_BOUNDIM)+IDSIZE(PEDIR_IAT)+IDSIZE(PEDIR_DELAYIMP)+IDSIZE(PEDIR_RELOC);
-    ibuf = new upx_byte[usize + xtrasize];
+    ibuf_size = usize + xtrasize;
+    ibuf = new upx_byte[ibuf_size];
 
     // BOUND IMPORT support. FIXME: is this ok?
     fi->seek(0,SEEK_SET);
@@ -1674,7 +1719,8 @@ void PackW32Pe::pack(OutputFile *fo)
     set_le32(p1 + s,ptr_diff(p1,ibuf) - rvamin);
     s += 4;
     ph.u_len += s;
-    obuf = new upx_byte[ph.u_len + ph.u_len / 8 + 256];
+    obuf_size = ph.u_len + ph.u_len / 8 + 256;
+    obuf = new upx_byte[obuf_size];
 
     ph.u_len -= rvamin;
     if (!compress(ibuf + rvamin,obuf))
@@ -1785,7 +1831,7 @@ void PackW32Pe::pack(OutputFile *fo)
         patch_le32(loader,codesize + 4,"JMPO",ih.entry - upxsection - jmp_pos - 4);
     }
     if (big & 6)
-        patch_le32(loader,codesize,"DELT", 0u -ih.imagebase - rvamin);
+        patch_le32(loader,codesize,"DELT", 0u - (unsigned) ih.imagebase - rvamin);
     if (sorelocs && (soimport == 0 || soimport + cimports != crelocs))
         patch_le32(loader,codesize,"BREL",crelocs);
     if (soimport)
@@ -1828,8 +1874,8 @@ void PackW32Pe::pack(OutputFile *fo)
     }
 
     const unsigned esi0 = s1addr + ic;
-    patch_le32(loader,codesize,"EDI0", 0u-esi0 + rvamin);
-    patch_le32(loader,codesize,"ESI0",esi0  + ih.imagebase);
+    patch_le32(loader,codesize,"EDI0", 0u - esi0 + rvamin);
+    patch_le32(loader,codesize,"ESI0", esi0 + ih.imagebase);
     ic = getLoaderSection("PEMAIN01") + 2 + upxsection;
 
     Reloc rel(1024); // new relocations are put here
@@ -1841,7 +1887,7 @@ void PackW32Pe::pack(OutputFile *fo)
     memset(osection,0,sizeof(osection));
 
     oh.entry = upxsection;
-    oh.objects = HIGH(osection);
+    oh.objects = 3;
     oh.chksum = 0;
 
     // fill the data directory
@@ -2058,18 +2104,25 @@ void PackW32Pe::rebuildImports(upx_byte *& extrainfo)
     if (ODADDR(PEDIR_IMPORT) == 0)
         return;
 
-    const upx_byte * const idata = obuf + get_le32(extrainfo);
+//    const upx_byte * const idata = obuf + get_le32(extrainfo);
+    OPTR_C(const upx_byte, idata, obuf + get_le32(extrainfo));
     const unsigned inamespos = get_le32(extrainfo + 4);
     extrainfo += 8;
 
     unsigned sdllnames = 0;
 
-    const upx_byte *import = ibuf + IDADDR(PEDIR_IMPORT) - isection[2].vaddr;
-    const upx_byte *p = idata;
+//    const upx_byte *import = ibuf + IDADDR(PEDIR_IMPORT) - isection[2].vaddr;
+//    const upx_byte *p;
+    IPTR_I(const upx_byte, import, ibuf + IDADDR(PEDIR_IMPORT) - isection[2].vaddr);
+    OPTR(const upx_byte, p);
 
-    while (get_le32(p))
+    for (p = idata; get_le32(p) != 0; ++p)
     {
-        sdllnames += strlen(get_le32(p) + import) + 1;
+        const upx_byte *dname = get_le32(p) + import;
+        const unsigned dlen = strlen(dname);
+        ICHECK(dname, dlen + 1);
+
+        sdllnames += dlen + 1;
         for (p += 8; *p;)
             if (*p == 1)
                 p += strlen(++p) + 1;
@@ -2077,8 +2130,6 @@ void PackW32Pe::rebuildImports(upx_byte *& extrainfo)
                 p += 3; // ordinal
             else
                 p += 5;
-
-        p++;
     }
     sdllnames = ALIGN_UP(sdllnames,2);
 
@@ -2088,40 +2139,53 @@ void PackW32Pe::rebuildImports(upx_byte *& extrainfo)
     upx_byte *dllnames = Obuf + inamespos;
     upx_byte *importednames = dllnames + sdllnames;
 
-    for (p = idata; get_le32(p); p++)
+    for (p = idata; get_le32(p) != 0; ++p)
     {
         // restore the name of the dll
+        const upx_byte *dname = get_le32(p) + import;
+        const unsigned dlen = strlen(dname);
+        ICHECK(dname, dlen + 1);
+
         const unsigned iatoffs = get_le32(p + 4) + rvamin;
         if (inamespos)
         {
             // now I rebuild the dll names
+            OCHECK(dllnames, dlen + 1);
+            strcpy(dllnames, dname);
             im->dllname = ptr_diff(dllnames,Obuf);
-            strcpy(dllnames,get_le32(p) + import);
             //;;;printf("\ndll: %s:",dllnames);
-            dllnames += strlen(dllnames) + 1;
+            dllnames += dlen + 1;
         }
         else
-            strcpy(Obuf + im->dllname,get_le32(p) + import);
+        {
+            OCHECK(Obuf + im->dllname, dlen + 1);
+            strcpy(Obuf + im->dllname, dname);
+        }
         im->iat = iatoffs;
-        LE32 *newiat = (LE32 *) (Obuf + iatoffs);
+
+//        LE32 *newiat = (LE32 *) (Obuf + iatoffs);
+        OPTR_I(LE32, newiat, (LE32 *) (Obuf + iatoffs));
 
         // restore the imported names+ordinals
-        for (p += 8; *p; newiat++)
+        for (p += 8; *p; ++newiat)
             if (*p == 1)
             {
-                unsigned len = strlen(++p) + 1;
+                const unsigned ilen = strlen(++p) + 1;
                 if (inamespos)
                 {
                     if (ptr_diff(importednames,oimpdlls) & 1)
-                        importednames--;
-                    memcpy(importednames + 2,p,len);
+                        importednames -= 1;
+                    omemcpy(importednames + 2, p, ilen);
                     //;;;printf(" %s",importednames+2);
-                    *newiat = ptr_diff(importednames,Obuf);
-                    importednames += 2 + len;
+                    *newiat = ptr_diff(importednames, Obuf);
+                    importednames += 2 + ilen;
                 }
                 else
-                    strcpy(Obuf + *newiat + 2,p);
-                p += len;
+                {
+                    OCHECK(Obuf + *newiat + 2, ilen + 1);
+                    strcpy(Obuf + *newiat + 2, p);
+                }
+                p += ilen;
             }
             else if (*p == 0xff)
             {
@@ -2148,7 +2212,7 @@ void PackW32Pe::rebuildRelocs(upx_byte *& extrainfo)
 
     if (ODSIZE(PEDIR_RELOC) == 8) // some tricky dlls use this
     {
-        memcpy(obuf + ODADDR(PEDIR_RELOC) - rvamin, "\x0\x0\x0\x0\x8\x0\x0\x0", 8);
+        omemcpy(obuf + ODADDR(PEDIR_RELOC) - rvamin, "\x0\x0\x0\x0\x8\x0\x0\x0", 8);
         return;
     }
 
@@ -2156,12 +2220,13 @@ void PackW32Pe::rebuildRelocs(upx_byte *& extrainfo)
     const upx_byte big = extrainfo[4];
     extrainfo += 5;
 
-    upx_byte *p = rdata;
+//    upx_byte *p = rdata;
+    OPTR_I(upx_byte, p, rdata);
     unsigned relocn = unoptimizeReloc32(&rdata,obuf,NULL,1);
     unsigned r16 = 0;
     if (big & 6)                // 16 bit relocations
     {
-        LE32 *q = (LE32*) rdata;
+        const LE32 *q = (LE32*) rdata;
         while (*q++)
             r16++;
         if ((big & 6) == 6)
@@ -2186,22 +2251,22 @@ void PackW32Pe::rebuildRelocs(upx_byte *& extrainfo)
     for (unsigned ic = 0; ic < relocn; ic++)
     {
         p = obuf + get_le32(wrkmem + 4 * ic);
-        set_le32(p,get_le32(p) + oh.imagebase + rvamin);
+        set_le32(p, get_le32((unsigned char *)p) + oh.imagebase + rvamin);
         rel.add(rvamin + get_le32(wrkmem + 4 * ic),3);
     }
     rel.finish (oxrelocs,soxrelocs);
 
     if (opt->w32pe.strip_relocs && !isdll)
     {
-        memset(obuf + ODADDR(PEDIR_RELOC) - rvamin,0,ODSIZE(PEDIR_RELOC));
+        omemset(obuf + ODADDR(PEDIR_RELOC) - rvamin,0,ODSIZE(PEDIR_RELOC));
         ODADDR(PEDIR_RELOC) = 0;
         soxrelocs = 0;
         // FIXME: try to remove the original relocation section somehow
     }
     else
-        memcpy (obuf + ODADDR(PEDIR_RELOC) - rvamin,oxrelocs,soxrelocs);
+        omemcpy(obuf + ODADDR(PEDIR_RELOC) - rvamin,oxrelocs,soxrelocs);
     delete [] oxrelocs; oxrelocs = NULL;
-    delete [] wrkmem; wrkmem = NULL;
+    delete [] wrkmem; wrkmem = NULL; wrkmem_size = 0;
 
     ODSIZE(PEDIR_RELOC) = soxrelocs;
 }
@@ -2215,7 +2280,7 @@ void PackW32Pe::rebuildExports()
     Export xport((char*) ibuf - isection[2].vaddr);
     processExports(&xport);
     processExports(&xport,ODADDR(PEDIR_EXPORT));
-    memcpy(obuf + ODADDR(PEDIR_EXPORT) - rvamin,oexport,soexport);
+    omemcpy(obuf + ODADDR(PEDIR_EXPORT) - rvamin,oexport,soexport);
 }
 
 void PackW32Pe::rebuildTls()
@@ -2239,7 +2304,7 @@ void PackW32Pe::rebuildResources(upx_byte *& extrainfo)
         {
             unsigned origoffs = get_le32(r + res.offs() - 4);
             res.newoffs() = origoffs;
-            memcpy(obuf + origoffs - rvamin,r + res.offs(),res.size());
+            omemcpy(obuf + origoffs - rvamin,r + res.offs(),res.size());
             if (icondir_count && res.itype() == RT_GROUP_ICON)
             {
                 set_le16(obuf + origoffs - rvamin + 4,icondir_count);
@@ -2249,7 +2314,7 @@ void PackW32Pe::rebuildResources(upx_byte *& extrainfo)
     upx_byte *p = res.build();
     // write back when the original is zeroed
     if (get_le32(obuf + ODADDR(PEDIR_RESOURCE) - rvamin + 12) == 0)
-        memcpy(obuf + ODADDR(PEDIR_RESOURCE) - rvamin,p,res.dirsize());
+        omemcpy(obuf + ODADDR(PEDIR_RESOURCE) - rvamin,p,res.dirsize());
     delete [] p;
 }
 
@@ -2262,8 +2327,10 @@ void PackW32Pe::unpack(OutputFile *fo)
     const unsigned overlay = file_size - ALIGN_UP(isection[2].rawdataptr + isection[2].size,ih.filealign);
     checkOverlay(overlay);
 
-    ibuf = new upx_byte[ph.c_len];
-    obuf = new upx_byte[ph.u_len + 512];    // 512 safety bytes
+    ibuf_size = ph.c_len;
+    obuf_size = ph.u_len + 512;     // 512 safety bytes
+    ibuf = new upx_byte[ibuf_size];
+    obuf = new upx_byte[obuf_size];
     fi->seek(isection[1].rawdataptr - 64 + ph.buf_offset + ph.getPackHeaderSize(),SEEK_SET);
     fi->readx(ibuf,ph.c_len);
 
@@ -2283,7 +2350,8 @@ void PackW32Pe::unpack(OutputFile *fo)
 
     // read the noncompressed section
     delete [] ibuf;
-    ibuf = new upx_byte[(unsigned) (isection[2].size)];
+    ibuf_size = isection[2].size;
+    ibuf = new upx_byte[ibuf_size];
     fi->seek(isection[2].rawdataptr,SEEK_SET);
     fi->readx(ibuf,isection[2].size);
 
@@ -2330,7 +2398,8 @@ void PackW32Pe::unpack(OutputFile *fo)
     if (fo)
     {
         delete [] ibuf;
-        ibuf = new upx_byte [(unsigned) (osection[0].rawdataptr)];
+        ibuf_size = osection[0].rawdataptr;
+        ibuf = new upx_byte [ibuf_size];
         memset(ibuf,0,osection[0].rawdataptr);
         infoHeader("[Writing uncompressed file]");
 

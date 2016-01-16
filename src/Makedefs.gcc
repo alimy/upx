@@ -1,0 +1,71 @@
+DEPMODE := gcc
+
+
+# /***********************************************************************
+# // defaults for gcc
+# ************************************************************************/
+
+CC = gcc
+CXX = g++
+CFLAGS_OUTPUT = -o $@
+LINK_EXE_OUTPUT = -o $@
+
+
+CFLAGS_W =
+CFLAGS_M =
+CFLAGS_O =
+CXXFLAGS_W =
+CXXFLAGS_M =
+CXXFLAGS_O =
+
+CFLAGS    = $(CFLAGS_W)   $(EXTRA_CFLAGS_W)   $(CFLAGS_M)   $(CFLAGS_O)   $(EXTRA_CFLAGS_O)
+CXXFLAGS  = $(CXXFLAGS_W) $(EXTRA_CXXFLAGS_W) $(CXXFLAGS_M) $(CXXFLAGS_O) $(EXTRA_CXXFLAGS_O)
+
+
+#
+# cflags
+#
+
+##CFLAGS_WERROR = -Werror
+CFLAGS_WERROR =
+CFLAGS_W   = $(CFLAGS_WERROR) -Wall -W -Wbad-function-cast -Wcast-align -Wcast-qual -Winline -Wmissing-declarations -Wmissing-prototypes -Wnested-externs                      -Wpointer-arith -Wshadow                      -Wwrite-strings
+CXXFLAGS_W = $(CFLAGS_WERROR) -Wall -W                     -Wcast-align -Wcast-qual -Winline                                                              -Woverloaded-virtual -Wpointer-arith -Wshadow -Wsign-promo -Wsynth -Wwrite-strings
+
+##CFLAGS_M += -fno-builtin
+##CFLAGS_M += -malign-functions=0 -malign-jumps=0 -malign-loops=0
+CXXFLAGS_M = $(CFLAGS_M)
+
+ifeq ($(DEBUG),1)
+CFLAGS_O  = -g -O0
+else
+##CFLAGS_O  = -Os -fstrict-aliasing
+CFLAGS_O  = -O2 -fstrict-aliasing
+##CFLAGS_O  = -O2 -fno-strict-aliasing
+endif
+CXXFLAGS_O = $(CFLAGS_O) -fconserve-space
+##CXXFLAGS += -fasynchronous-exceptions
+
+
+#
+# cxxflags for g++ 3.2 or better
+
+##CXXFLAGS_W += -Wdisabled-optimization -Wpacked
+
+
+#
+# ldflags
+#
+
+ifeq ($(DEBUG),1)
+LDFLAGS += -g
+else
+LDFLAGS += -s
+endif
+LDFLAGS += -Wl,-Map,$T.map
+
+ifeq ($(WITH_ZLIB),1)
+LDLIBS += -lz
+endif
+
+
+# vi:nowrap

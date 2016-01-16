@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -316,7 +316,7 @@ void upx_main(char *argv[], char *envp[])
     //
 
 #if defined(USE_MALLOC)
-    buf = mmap(malloc_args);
+    buf = (unsigned char *) mmap(malloc_args);
     if ((unsigned long) buf >= (unsigned long) -4095)
         goto error;
 #else

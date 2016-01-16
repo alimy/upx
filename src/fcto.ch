@@ -1,4 +1,4 @@
-/* fctl_ml.ch -- filter CTO implementation by ML1050
+/* fcto.ch -- filter CTO implementation
 
    This file is part of the UPX executable compressor.
 
@@ -69,33 +69,33 @@
 #define COND(b,x)   (b[x] == 0xe8)
 #define F           f_cto32_e8_bswap_le
 #define U           u_cto32_e8_bswap_le
-#include "fcto_ml2.ch"
+#include "fcto2.ch"
 #undef U
 #undef F
 #define F           s_cto32_e8_bswap_le
-#include "fcto_ml2.ch"
+#include "fcto2.ch"
 #undef F
 #undef COND
 
 #define COND(b,x)   (b[x] == 0xe9)
 #define F           f_cto32_e9_bswap_le
 #define U           u_cto32_e9_bswap_le
-#include "fcto_ml2.ch"
+#include "fcto2.ch"
 #undef U
 #undef F
 #define F           s_cto32_e9_bswap_le
-#include "fcto_ml2.ch"
+#include "fcto2.ch"
 #undef F
 #undef COND
 
 #define COND(b,x)   (b[x] == 0xe8 || b[x] == 0xe9)
 #define F           f_cto32_e8e9_bswap_le
 #define U           u_cto32_e8e9_bswap_le
-#include "fcto_ml2.ch"
+#include "fcto2.ch"
 #undef U
 #undef F
 #define F           s_cto32_e8e9_bswap_le
-#include "fcto_ml2.ch"
+#include "fcto2.ch"
 #undef F
 #undef COND
 

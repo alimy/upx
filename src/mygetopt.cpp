@@ -21,10 +21,22 @@
    Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
-#include "tailor.h"
 #ifndef EOF
 #include <stdio.h>
 #include <string.h>
+#endif
+
+
+#undef PROGNAME
+#if 1
+#define PROGNAME(x)     (x)
+#else
+#include "conf.h"
+static const char *my_progname(const char *argv0)
+{
+    return progname ? progname : argv0;
+}
+#define PROGNAME(x)     my_progname(x)
 #endif
 
 
@@ -54,8 +66,6 @@
 #define optind                  mfx_optind
 #define opterr                  mfx_opterr
 #define optopt                  mfx_optopt
-#define my_index                strchr
-#define my_strlen               strlen
 #undef BAD_OPTION
 
 /* For communication from `getopt' to the caller.
@@ -382,15 +392,10 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
       int indfound = 0;
       int needexact = 0;
 
-#if defined(DOSISH)
       /* allow `--option#value' because you cannout assign a '='
          to an environment variable under DOS command.com */
       while (*s && *s != '=' && * s != '#')
         s++;
-#else
-      while (*s && *s != '=')
-        s++;
-#endif
 
       /* Test all options for either exact match or abbreviated matches.  */
       for (p = longopts, option_index = 0; p->name;
@@ -399,7 +404,7 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
           {
             if (p->has_arg & 0x10)
               needexact = 1;
-            if ((unsigned) (s - nextchar) == my_strlen (p->name))
+            if ((unsigned) (s - nextchar) == strlen (p->name))
               {
                 /* Exact match found.  */
                 pfound = p;
@@ -423,8 +428,8 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
         {
           if (opterr)
             fprintf (stderr, "%s: unrecognized option `%s'\n",
-                     argv[0], argv[optind]);
-          nextchar += my_strlen (nextchar);
+                     PROGNAME(argv[0]), argv[optind]);
+          nextchar += strlen (nextchar);
           optind++;
           return BAD_OPTION;
         }
@@ -432,8 +437,8 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
         {
           if (opterr)
             fprintf (stderr, "%s: option `%s' is ambiguous\n",
-                     argv[0], argv[optind]);
-          nextchar += my_strlen (nextchar);
+                     PROGNAME(argv[0]), argv[optind]);
+          nextchar += strlen (nextchar);
           optind++;
           return BAD_OPTION;
         }
@@ -459,14 +464,14 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
                         /* --option */
                         fprintf (stderr,
                                  "%s: option `--%s' doesn't allow an argument\n",
-                                 argv[0], pfound->name);
+                                 PROGNAME(argv[0]), pfound->name);
                       else
                         /* +option or -option */
                         fprintf (stderr,
                              "%s: option `%c%s' doesn't allow an argument\n",
-                             argv[0], argv[optind - 1][0], pfound->name);
+                             PROGNAME(argv[0]), argv[optind - 1][0], pfound->name);
                     }
-                  nextchar += my_strlen (nextchar);
+                  nextchar += strlen (nextchar);
                   return BAD_OPTION;
                 }
             }
@@ -482,13 +487,13 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
                 {
                   if (opterr)
                     fprintf (stderr, "%s: option `--%s%s' requires an argument\n",
-                             argv[0], pfound->name,
+                             PROGNAME(argv[0]), pfound->name,
                              (pfound->has_arg & 0x20) ? "=" : "");
-                  nextchar += my_strlen (nextchar);
+                  nextchar += strlen (nextchar);
                   return optstring[0] == ':' ? ':' : BAD_OPTION;
                 }
             }
-          nextchar += my_strlen (nextchar);
+          nextchar += strlen (nextchar);
           if (longind != NULL)
             *longind = option_index;
           if (pfound->flag)
@@ -506,18 +511,18 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
 #ifdef GETOPT_COMPAT
           || argv[optind][0] == '+'
 #endif                          /* GETOPT_COMPAT */
-          || my_index (optstring, *nextchar) == NULL)
+          || strchr (optstring, *nextchar) == NULL)
         {
           if (opterr)
             {
               if (argv[optind][1] == '-')
                 /* --option */
                 fprintf (stderr, "%s: unrecognized option `--%s'\n",
-                         argv[0], nextchar);
+                         PROGNAME(argv[0]), nextchar);
               else
                 /* +option or -option */
                 fprintf (stderr, "%s: unrecognized option `%c%s'\n",
-                         argv[0], argv[optind][0], nextchar);
+                         PROGNAME(argv[0]), argv[optind][0], nextchar);
             }
           nextchar = empty_string;
           optind++;
@@ -530,7 +535,7 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
 
   {
     char c = *nextchar++;
-    const char *temp = my_index (optstring, c);
+    const char *temp = strchr (optstring, c);
 
     /* Increment `optind' when we start to process its last character.  */
     if (*nextchar == '\0')
@@ -543,12 +548,12 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
 #if 0
             if (c < 040 || c >= 0177)
               fprintf (stderr, "%s: unrecognized option, character code 0%o\n",
-                       argv[0], c);
+                       PROGNAME(argv[0]), c);
             else
-              fprintf (stderr, "%s: unrecognized option `-%c'\n", argv[0], c);
+              fprintf (stderr, "%s: unrecognized option `-%c'\n", PROGNAME(argv[0]), c);
 #else
             /* 1003.2 specifies the format of this message.  */
-            fprintf (stderr, "%s: illegal option -- %c\n", argv[0], c);
+            fprintf (stderr, "%s: illegal option -- %c\n", PROGNAME(argv[0]), c);
 #endif
           }
         optopt = c;
@@ -584,11 +589,11 @@ static int _getopt_internal (int argc, char **argv, const char *optstring,
                   {
 #if 0
                     fprintf (stderr, "%s: option `-%c' requires an argument\n",
-                             argv[0], c);
+                             PROGNAME(argv[0]), c);
 #else
                     /* 1003.2 specifies the format of this message.  */
                     fprintf (stderr, "%s: option requires an argument -- %c\n",
-                             argv[0], c);
+                             PROGNAME(argv[0]), c);
 #endif
                   }
                 optopt = c;
@@ -694,3 +699,9 @@ main (argc, argv)
 }
 
 #endif /* TEST */
+
+
+/*
+vi:ts=4:et:nowrap
+*/
+

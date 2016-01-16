@@ -2,8 +2,8 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2002 Laszlo Molnar
+;  Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) 1996-2004 Laszlo Molnar
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -101,7 +101,7 @@ p_env           equ     $2c     ; .l    pointer to environment string
 ;   GEMDOS/XBIOS trashes d0, d1, d2, a0, a1, a2
 
 
-; Ssystem(S_FLUSHCACHE, base, length) - inside the kernel this
+; long Ssystem(S_FLUSHCACHE, base, length) - inside the kernel this
 ; is called `cpush(base, length)'.
 ;   returns: d0.l should be either 0 or -32 (== ENOSYS == EINVFN)
 ; Available since FreeMiNT 1.15.1 (1999-04-13).
@@ -128,7 +128,7 @@ macro(MINT_FLUSH_CACHE)
 
 macro(SUPEXEC_FLUSH_CACHE)
                 pea     \@super(pc)
-                move.w  #38,-(sp)       ; Supexec
+                move.w  #$0026,-(sp)    ; Supexec (38)
                 trap    #14             ; XBIOS
                 addq.l  #6,sp
                 bra     \@done
@@ -179,7 +179,7 @@ macro(SUPEXEC_FLUSH_CACHE)
 
 macro(BOTH_FLUSH_CACHE)
                 MINT_FLUSH_CACHE
-                tst.w   d0
+                tst.l   d0
                 beq     \@done
                 SUPEXEC_FLUSH_CACHE
 \@done:
@@ -339,6 +339,8 @@ L(loop):        move.w  -(a2),-(ASTACK)
                 moveq.l #0,d7
                 moveq.l #-$50,d6        ; 0xffffffb0
                 lsl.w   #4,d6           ; 0xfffffb00 == -0x500
+#else
+#  error
 #endif
 
 
@@ -389,7 +391,7 @@ L(loop):        move.l  d3,(a6)+
 ; info:
 ;  This is also called as a subroutine (before decompression, NOT running
 ;  in the stack). When running in the stack the `rts' is replaced by a `nop'.
-;
+
 flush_cache:
                 FLUSH_CACHE
 flush_cache_rts:
@@ -408,7 +410,6 @@ flush_cache_rts:
 ; ------------- clear the dirty stack
 
 #if 0
-;;; /* 0 || defined(FLUSH_CACHE) */
 
 ; better don't do this - we are currently running in the stack
 ; and don't want to make yet another instruction-cache-line dirty

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -38,6 +38,9 @@ class MemBuffer;
 
 class File
 {
+protected:
+    File() { }
+    virtual ~File() { }
 public:
     static void chmod(const char *name, int mode);
     static void rename(const char *old_, const char *new_);
@@ -123,6 +126,8 @@ public:
     virtual bool openStdout(int flags=0, bool force=false);
 
     virtual void write(const void *buf, int len);
+    virtual void write(const MemBuffer *buf, int len);
+    virtual void write(const MemBuffer &buf, int len);
 
     off_t getBytesWritten() const { return bytes_written; }
 
@@ -153,7 +158,7 @@ protected:
 //
 **************************************************************************/
 
-#if 0
+#if 0 /* NOT USED */
 class MemoryOutputFile : public FileBase
 {
     typedef FileBase super;

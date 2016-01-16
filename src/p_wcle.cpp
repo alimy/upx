@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -242,6 +242,12 @@ int PackWcle::preprocessFixups()
 
     for (ic = jc = 0; ic < objects; ic++)
         jc += counts[ic];
+
+    if (jc == 0)
+    {
+        // FIXME: implement this
+        throwCantPack("files without relocations are not supported");
+    }
 
     ByteArray(rl, jc);
     ByteArray(srf, counts[objects+0]+1);

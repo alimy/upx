@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -31,21 +31,31 @@
 
 #ifdef __cplusplus
 
+#include "acc/acc_cxx.h"
 
-//#define NOTHROW throw()
+#define NOTHROW             ACC_CXX_NOTHROW
+#define DISABLE_NEW_DELETE  ACC_CXX_DISABLE_NEW_DELETE
 
 
 /*************************************************************************
 // exceptions & RTTI
 **************************************************************************/
 
-#if defined(__DMC__)
+#if (ACC_CC_BORLANDC && (__BORLANDC__ < 0x0530))
+
+#include <stdcomp.h>
+#undef RWSTD_MULTI_THREAD
+#include <stdexcep.h>
+#include <new.h>
+#include <typeinfo.h>
+namespace std { class bad_alloc { }; }
+
+#elif (ACC_CC_DMC && (__DMC__ < 0x834))
 
 #include <new.h>
 #include <typeinfo.h>
 
 namespace std {
-typedef ::Type_info type_info;
 class exception
 {
 public:
@@ -53,33 +63,45 @@ public:
     virtual ~exception() NOTHROW { }
     virtual const char* what() const NOTHROW { return "exception"; }
 };
-class bad_alloc : public exception
+}
+
+#elif (ACC_CC_SYMANTECC)
+
+#include <new.h>
+#include <typeinfo.h>
+
+class exception
 {
 public:
-    bad_alloc() NOTHROW { }
-    virtual ~bad_alloc() NOTHROW { }
-    virtual const char* what() const NOTHROW { return "bad_alloc"; }
+    exception() NOTHROW { }
+    virtual ~exception() NOTHROW { }
+    virtual const char* what() const NOTHROW { return "exception"; }
 };
-};
-
-#elif defined(__WATCOMC__)
-
-#define std
-
-#include <exception>
-//#include <stdexcept>
-#include <new>
-#include <typeinfo>
-
-class bad_alloc { };
+#define bool int
+#define true 1
+#define false 0
 
 #else
 
 #include <exception>
-//#include <stdexcept>
 #include <new>
 #include <typeinfo>
 
+#endif
+
+
+#if (ACC_CC_BORLANDC)
+using namespace std;
+#elif (ACC_CC_DMC)
+namespace std { class bad_alloc { }; }
+#elif (ACC_CC_GNUC && ACC_OS_EMX)
+#define std
+#elif (ACC_CC_SYMANTECC)
+#define std
+class bad_alloc { };
+#elif (ACC_CC_WATCOMC)
+#define std
+class bad_alloc { };
 #endif
 
 
@@ -97,14 +119,14 @@ class bad_alloc { };
 #  define __USE_MALLOC
 #  define enable                upx_stl_enable
 #endif
-#ifdef _MSC_VER
+#if defined(_MSC_VER)
 #  pragma warning(push)
 #  pragma warning(disable: 4018 4100 4663)
 #endif
 
 #include <vector>
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER)
 #  pragma warning(pop)
 #endif
 

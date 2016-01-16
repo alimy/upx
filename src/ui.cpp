@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -109,7 +109,9 @@ static char progress_filler[] = ".*[]";
 
 static void init_global_constants(void)
 {
-#ifdef __MSDOS__
+#if 0 && (ACC_OS_DOS16 || ACC_OS_DOS32)
+    // FIXME: should test codepage here
+
     static bool done = false;
     if (done)
         return;
@@ -149,7 +151,7 @@ static const char *mkline(unsigned long fu_len, unsigned long fc_len,
 
     // Large ratios can happen because of overlays that are
     // appended after a program is packed.
-    unsigned ratio = get_ratio(fu_len, fc_len);
+    unsigned ratio = get_ratio(fu_len, fc_len) + 50;
 #if 1
     if (ratio >= 1000*1000)
         strcpy(r, "overlay");
@@ -158,7 +160,7 @@ static const char *mkline(unsigned long fu_len, unsigned long fc_len,
         strcpy(r, "999.99%");
 #endif
     else
-        upx_snprintf(r, sizeof(r), "%3d.%02d%%", ratio / 10000, (ratio % 10000) / 100);
+        upx_snprintf(r, sizeof(r), "%3u.%02u%%", ratio / 10000, (ratio % 10000) / 100);
     if (decompress)
         f = "%10ld <-%10ld  %7s  %13s  %s";
     else
@@ -193,7 +195,7 @@ UiPacker::UiPacker(const Packer *p_) :
 
     if (opt->verbose < 0)
         s->mode = M_QUIET;
-    else if (opt->verbose == 0 || !isatty(STDOUT_FILENO))
+    else if (opt->verbose == 0 || !acc_isatty(STDOUT_FILENO))
         s->mode = M_INFO;
     else if (opt->verbose == 1 || opt->no_progress)
         s->mode = M_MSG;
@@ -391,7 +393,7 @@ void UiPacker::endCallback()
 // the callback
 **************************************************************************/
 
-void __UPX_ENTRY UiPacker::callback(upx_uint isize, upx_uint osize, int state, void *user)
+void __UPX_CDECL UiPacker::callback(upx_uint isize, upx_uint osize, int state, void *user)
 {
     //printf("%6d %6d %d\n", isize, osize, state);
     if (state != -1 && state != 3) return;
@@ -452,7 +454,7 @@ void UiPacker::doCallback(unsigned isize, unsigned osize)
     if (osize > 0)
         ratio = get_ratio(isize, osize);
 
-    int buflen = &s->msg_buf[sizeof(s->msg_buf)] - m;
+    int buflen = (int) (&s->msg_buf[sizeof(s->msg_buf)] - m);
     upx_snprintf(m, buflen, "  %3d.%1d%%  %c ",
                  ratio / 10000, (ratio % 10000) / 1000,
                  spinner[s->spin_counter & 3]);

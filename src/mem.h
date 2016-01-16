@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -37,46 +37,41 @@
 class MemBuffer
 {
 public:
-    MemBuffer(unsigned size=0);
+    MemBuffer();
+    MemBuffer(unsigned size);
     ~MemBuffer();
 
     void alloc(unsigned size);
-    void allocForCompression(unsigned uncompressed_size);
-    void allocForUncompression(unsigned uncompressed_size);
+    void allocForCompression(unsigned uncompressed_size, unsigned extra=0);
+    void allocForUncompression(unsigned uncompressed_size, unsigned extra=0);
 
     void dealloc();
 
-    const unsigned char *getBuf()     const { return ptr; }
-    unsigned getSize() const;
+    void checkState() const;
 
-    operator       unsigned char * ()       { return ptr; }
-    //operator const unsigned char * () const { return ptr; }
+    unsigned getSize() const { return b_size; }
 
-          void *getVoidPtr()                { return (void *) ptr; }
-    const void *getVoidPtr() const          { return (const void *) ptr; }
+    operator       unsigned char * ()       { return b; }
+    //operator const unsigned char * () const { return b; }
+          void *getVoidPtr()                { return (void *) b; }
+    const void *getVoidPtr() const          { return (const void *) b; }
 
-private:
-    void alloc(unsigned size, unsigned base_offset);
-
-protected:
-    unsigned char *ptr;
-    unsigned char *alloc_ptr;
-    unsigned alloc_size;
+    void fill(unsigned off, unsigned len, int value);
+    void clear(unsigned off, unsigned len)  { fill(off, len, 0); }
+    void clear()                            { fill(0, b_size, 0); }
 
 private:
+    unsigned char *b;
+    unsigned b_size;
+
+    static unsigned global_alloc_counter;
+
     // disable copy and assignment
-    MemBuffer(MemBuffer const &); // {}
-    MemBuffer& operator= (MemBuffer const &); // { return *this; }
+    MemBuffer(const MemBuffer &); // {}
+    MemBuffer& operator= (const MemBuffer &); // { return *this; }
 
     // disable dynamic allocation
-#ifndef new
-    static void *operator new (size_t); // {}
-    static void *operator new[] (size_t); // {}
-#endif
-#ifndef delete
-    //static void operator delete (void *) {}
-    //static void operator delete[] (void *) {}
-#endif
+    DISABLE_NEW_DELETE
 };
 
 #endif /* already included */

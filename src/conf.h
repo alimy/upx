@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,51 +29,86 @@
 #ifndef __UPX_CONF_H
 #define __UPX_CONF_H
 
-#if 0 && defined(__EMX__)
-#  include <sys/emx.h>
-#endif
-
-#if defined(UPX_CONFIG_H)
-#  include UPX_CONFIG_H
-#endif
-
-#if defined(HAVE_STDINT_H)
-#  if !defined(__STDC_LIMIT_MACROS)
-#    define __STDC_LIMIT_MACROS 1
-#  endif
-#  if !defined(__STDC_CONSTANT_MACROS)
-#    define __STDC_CONSTANT_MACROS 1
-#  endif
-#  include <stdint.h>
-#endif
-#include <limits.h>
 #include "version.h"
-#include "tailor.h"
 
-// upx_int64l is int_least64_t in <stdint.h> terminology
-#if !defined(upx_int64l)
-#  if defined(HAVE_STDINT_H)
-#    define upx_int64l      int_least64_t
-#    define upx_uint64l     uint_least64_t
-#  elif (ULONG_MAX > 0xffffffffL)
-#    define upx_int64l      long int
-#    define upx_uint64l     unsigned long int
-#  elif defined(__GNUC__) || defined(__DMC__)
-#    define upx_int64l      long long int
-#    define upx_uint64l     unsigned long long int
-#  elif defined(__BORLANDC__) || defined(_MSC_VER) || defined(__WATCOMC__)
-#    define upx_int64l      __int64
-#    define upx_uint64l     unsigned __int64
+
+/*************************************************************************
+// ACC
+**************************************************************************/
+
+#include "acc/acc.h"
+#if ((ACC_OS_WIN32 || ACC_OS_WIN64) && ACC_CC_MWERKS) && defined(__MSL__)
+# undef HAVE_UTIME_H /* this pulls in <windows.h> */
+#endif
+#include "acc/acc_incd.h"
+#include "acc/acc_ince.h"
+#include "acc/acc_lib.h"
+#if (ACC_OS_CYGWIN || ACC_OS_DOS16 || ACC_OS_DOS32 || ACC_OS_EMX || ACC_OS_OS2 || ACC_OS_OS216 || ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
+#  if defined(INVALID_HANDLE_VALUE) || defined(MAKEWORD) || defined(RT_CURSOR)
+#    error "something pulled in <windows.h>"
+#  endif
+#endif
+
+
+#if (ACC_CC_BORLANDC)
+#  if (__BORLANDC__ < 0x0500)
+#    error "need Borland C++ 5.0 or newer"
+#  endif
+#  pragma warn -aus     // 8004: 'x' is assigned a value that is never used
+#  pragma warn -inl     // 8026+8027: Function not expanded inline
+   // Borland compilers typically produce a number of bogus warnings, and
+   // the actual diagnostics vary from version to version...
+#  if (__BORLANDC__ < 0x0530)
+#    pragma warn -csu   // 8012: Comparing signed and unsigned values
+#  endif
+#  if (__BORLANDC__ >= 0x0530 && __BORLANDC__ < 0x0560)
+#    pragma warn -osh   // 8055: Possible overflow in shift operation
+#  endif
+#  if (__BORLANDC__ >= 0x0560)
+#    pragma warn -use   // 8080: 'x' is declared but never used
+#  endif
+#elif (ACC_CC_DMC)
+#  if (__DMC__ < 0x829)
+#    error "need Digital Mars C++ 8.29 or newer"
+#  endif
+#elif (ACC_CC_INTELC)
+#  if (__INTEL_COMPILER < 450)
+#    error "need Intel C++ 4.5 or newer"
+#  endif
+#  if (ACC_OS_WIN32 || ACC_OS_WIN64)
+#  elif defined(__linux__)
+#    pragma warning(error: 424)         // #424: extra ";" ignored
+#    pragma warning(disable: 193)       // #193: zero used for undefined preprocessing identifier
+#    pragma warning(disable: 810)       // #810: conversion from "A" to "B" may lose significant bits
+#    pragma warning(disable: 981)       // #981: operands are evaluated in unspecified order
+#    pragma warning(disable: 1418)      // #1418: external definition with no prior declaration
 #  else
-#    error "need a 64-bit integer type"
+#    error "untested platform"
+#  endif
+#elif (ACC_CC_MSC)
+#  if (_MSC_VER < 1100)
+#    error "need Visual C++ 5.0 or newer"
+#  endif
+#  pragma warning(error: 4096)          // W2: '__cdecl' must be used with '...'
+#  pragma warning(disable: 4097)        // W3: typedef-name 'A' used as synonym for class-name 'B'
+#  pragma warning(disable: 4511)        // W3: 'class': copy constructor could not be generated
+#  pragma warning(disable: 4512)        // W4: 'class': assignment operator could not be generated
+#  pragma warning(disable: 4514)        // W4: 'function': unreferenced inline function has been removed
+#  pragma warning(disable: 4710)        // W4: 'function': function not inlined
+#elif (ACC_CC_WATCOMC)
+#  if (__WATCOMC__ < 1100)
+#    error "need Watcom C++ 11.0c or newer"
+#  endif
+#  if defined(__cplusplus)
+#    pragma warning 656 9               // w5: define this function inside its class definition (may improve code quality)
 #  endif
 #endif
 
-#if !defined(__i386__)
-#  if defined(__386__) || defined(_M_IX86)
-#    define __i386__ 1
-#  endif
-#endif
+
+/*************************************************************************
+//
+**************************************************************************/
+
 #if defined(__linux__) && !defined(__unix__)
 #  define __unix__ 1
 #endif
@@ -84,16 +119,26 @@
 #undef linux
 #undef small
 #undef tos
-#undef unix
+#if defined(ACC_CC_DMC)
+#  undef tell
+#endif
+#if !defined(ACC_CC_PGI)
+#  undef unix
+#endif
+#if defined(__DJGPP__)
+#  undef sopen
+#  undef __unix__
+#  undef __unix
+#endif
 
 
 #if !defined(WITH_UCL)
-#  error "you lose"
+#  error "please set UCLDIR in the Makefile"
 #endif
 #if defined(WITH_UCL)
 #  include <ucl/uclconf.h>
 #  include <ucl/ucl.h>
-#  if !defined(UCL_VERSION) || (UCL_VERSION < 0x010100L)
+#  if !defined(UCL_VERSION) || (UCL_VERSION < 0x010200L)
 #    error "please upgrade your UCL installation"
 #  endif
 #  if !defined(UPX_UINT_MAX)
@@ -109,7 +154,7 @@
 #    define UPX_E_OK      UCL_E_OK
 #    define UPX_E_ERROR   UCL_E_ERROR
 #    define UPX_E_OUT_OF_MEMORY UCL_E_OUT_OF_MEMORY
-#    define __UPX_ENTRY   __UCL_ENTRY
+#    define __UPX_CDECL   __UCL_CDECL
 #  endif
 #endif
 #if defined(WITH_NRV)
@@ -121,7 +166,7 @@
 #  endif
 #endif
 #if !defined(UINT_MAX) || (UINT_MAX < 0xffffffffL)
-#  error "you lose"
+#  error "UINT_MAX"
 #endif
 
 
@@ -129,65 +174,9 @@
 // system includes
 **************************************************************************/
 
-#if !defined(NO_SYS_TYPES_H)
-#  include <sys/types.h>
-#endif
-
-#define NDEBUG
-#undef NDEBUG
-#include <assert.h>
-
-#include <stdio.h>
-#include <stddef.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-#include <ctype.h>
-#include <limits.h>
-#include <errno.h>
-#if !defined(NO_FCNTL_H)
-#  include <fcntl.h>
-#endif
-#if !defined(NO_SYS_STAT_H)
-#  include <sys/stat.h>
-#endif
-#if defined(HAVE_IO_H) && !defined(NO_IO_H)
-#  include <io.h>
-#endif
-#if defined(HAVE_DOS_H) && !defined(NO_DOS_H)
-#  include <dos.h>
-#endif
-#if defined(HAVE_MALLOC_H) && !defined(NO_MALLOC_H)
-#  include <malloc.h>
-#endif
-#if defined(HAVE_ALLOCA_H) && !defined(NO_ALLOCA_H)
-#  include <alloca.h>
-#endif
-#if defined(HAVE_SIGNAL_H)
-#  include <signal.h>
-#endif
-#if defined(HAVE_UNISTD_H)
-#  include <unistd.h>
-#endif
-#if defined(TIME_WITH_SYS_TIME)
-#  include <sys/time.h>
-#  include <time.h>
-#else
-#  include <time.h>
-#endif
-#if defined(HAVE_UTIME_H)
-#  include <utime.h>
-#elif defined(HAVE_SYS_UTIME_H)
-#  include <sys/utime.h>
-#endif
-#if defined(HAVE_SHARE_H)
-#  include <share.h>
-#endif
-
-
 // malloc debuggers
 #if defined(WITH_VALGRIND)
-#  include <valgrind.h>
+#  include <valgrind/memcheck.h>
 #elif defined(WITH_DMALLOC)
 #  define DMALLOC_FUNC_CHECK
 #  include <dmalloc.h>
@@ -207,72 +196,23 @@
 #endif
 #if !defined(VALGRIND_MAKE_READABLE)
 #  if 0
-#    define VALGRIND_MAKE_READABLE(addr,len)    memset(addr,0,len), 0
+#    define VALGRIND_MAKE_READABLE(addr,len)    (memset(addr,0,len), 0)
 #  else
 #    define VALGRIND_MAKE_READABLE(addr,len)    0
 #  endif
 #endif
 #if !defined(VALGRIND_DISCARD)
-#  define VALGRIND_DISCARD(handle)              ((void) &handle)
+#  define VALGRIND_DISCARD(handle)              ((void)(&handle))
 #endif
+
+
+#undef NDEBUG
+#include <assert.h>
 
 
 /*************************************************************************
 // portab
 **************************************************************************/
-
-#if defined(__GNUC__) && !defined(__GNUC_VERSION_HEX__)
-#  if !defined(__GNUC_MINOR__)
-#    error
-#  endif
-#  if !defined(__GNUC_PATCHLEVEL__)
-#    define __GNUC_PATCHLEVEL__ 0
-#  endif
-#  define __GNUC_VERSION_HEX__ \
-        (__GNUC__ * 0x10000L + __GNUC_MINOR__ * 0x100 + __GNUC_PATCHLEVEL__)
-#endif
-
-
-#if !defined(PATH_MAX)
-#  define PATH_MAX          512
-#elif (PATH_MAX < 512)
-#  undef PATH_MAX
-#  define PATH_MAX          512
-#endif
-
-
-#ifndef RETSIGTYPE
-#  define RETSIGTYPE        void
-#endif
-#ifndef SIGTYPEENTRY
-#  define SIGTYPEENTRY
-#endif
-typedef RETSIGTYPE (SIGTYPEENTRY *sig_type)(int);
-
-
-#undef MODE_T
-#if defined(HAVE_MODE_T)
-#  define MODE_T            mode_t
-#else
-#  define MODE_T            int
-#endif
-
-
-#if !defined(HAVE_STRCASECMP)
-#  if defined(HAVE_STRICMP)
-#    define strcasecmp      stricmp
-#  else
-#    define strcasecmp      strcmp
-#  endif
-#endif
-#if !defined(HAVE_STRNCASECMP)
-#  if defined(HAVE_STRNICMP)
-#    define strncasecmp     strnicmp
-#  else
-#    define strncasecmp     strncmp
-#  endif
-#endif
-
 
 #ifndef STDIN_FILENO
 #  define STDIN_FILENO      (fileno(stdin))
@@ -282,6 +222,14 @@ typedef RETSIGTYPE (SIGTYPEENTRY *sig_type)(int);
 #endif
 #ifndef STDERR_FILENO
 #  define STDERR_FILENO     (fileno(stderr))
+#endif
+
+
+#if !defined(HAVE_STRCASECMP) && defined(HAVE_STRICMP)
+#  define strcasecmp      stricmp
+#endif
+#if !defined(HAVE_STRNCASECMP) && defined(HAVE_STRNICMP)
+#  define strncasecmp     strnicmp
 #endif
 
 
@@ -308,14 +256,14 @@ typedef RETSIGTYPE (SIGTYPEENTRY *sig_type)(int);
 #  if defined(S_IFMT) && defined(S_IFREG)
 #    define S_ISREG(m)      (((m) & S_IFMT) == S_IFREG)
 #  else
-#    error S_ISREG
+#    error "S_ISREG"
 #  endif
 #endif
 #if !defined(S_ISDIR)
 #  if defined(S_IFMT) && defined(S_IFDIR)
 #    define S_ISDIR(m)      (((m) & S_IFMT) == S_IFDIR)
 #  else
-#    error S_ISDIR
+#    error "S_ISDIR"
 #  endif
 #endif
 #if !defined(S_ISCHR)
@@ -331,27 +279,9 @@ typedef RETSIGTYPE (SIGTYPEENTRY *sig_type)(int);
 #define outp                upx_outp
 
 
-#if 0
-#  define COMPILE_TIME_ASSERT(expr) \
-     { typedef char __upx_compile_time_assert_fail[1 - 2 * !(expr)]; \
-       switch (sizeof(__upx_compile_time_assert_fail)) { \
-         case 1: case !(expr): break; \
-     } }
-#elif defined(__SC__)
-#  define COMPILE_TIME_ASSERT(expr) \
-     { switch (1) { case 1: case !(expr): break; } }
-#elif 0
-#  define COMPILE_TIME_ASSERT(expr) \
-     { typedef int __upx_compile_time_assert_fail[1 - 2 * !(expr)]; typedef int a[sizeof(__upx_compile_time_assert_fail]; }
-#else
-#  define COMPILE_TIME_ASSERT(expr) \
-     { typedef int __upx_compile_time_assert_fail[1 - 2 * !(expr)]; }
-#endif
-
-
 #undef __attribute_packed
-#if defined(__GNUC__)
-#  if 1 && defined(__i386__)
+#if (ACC_CC_GNUC || ACC_CC_INTELC)
+#  if (1 && (ACC_ARCH_IA32))
 #    define __attribute_packed
 #  else
 #    define __attribute_packed    __attribute__((__packed__,__aligned__(1)))
@@ -360,61 +290,49 @@ typedef RETSIGTYPE (SIGTYPEENTRY *sig_type)(int);
 #  define __attribute_packed
 #endif
 
-
-#undef NOTHROW
-#if defined(__cplusplus)
-#  define NOTHROW throw()
-#else
-#  define NOTHROW
-#endif
-
-
-/*************************************************************************
-// file io
-**************************************************************************/
-
-#if defined(HAVE_SETMODE)
-#  if !defined(O_BINARY)
-#    error "setmode without O_BINARY"
-#  endif
-#  define USE_SETMODE 1
-#endif
-
 #if !defined(O_BINARY)
 #  define O_BINARY  0
 #endif
 
-#if defined(__DMC__)
-#  undef tell
-#endif
-
-#if defined(__DJGPP__)
-#  undef sopen
-#  undef USE_SETMODE
+#ifndef OPTIONS_VAR
+#  define OPTIONS_VAR   "UPX"
 #endif
 
 
 /*************************************************************************
-// memory util
+//
 **************************************************************************/
 
-#undef UNUSED
+#define UNUSED(var)              ACC_UNUSED(var)
+#define COMPILE_TIME_ASSERT(e)   ACC_COMPILE_TIME_ASSERT(e)
+
 #if 1
-#  define UNUSED(var)       ((void) &(var))
-#elif 1 && defined(__GNUC__)
-#  define UNUSED(var)       { typedef int __upx_unused[sizeof(var) ? 1 : -1]; }
-#elif 0
-#  define UNUSED(var)       do { } while (!sizeof(var))
-#elif defined(__BORLANDC__)
-#  define UNUSED(parm)      ((void)(parm))
+#  define __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b) { \
+     typedef a acc_tmp_a_t; typedef b acc_tmp_b_t; \
+     struct acc_tmp_t { acc_tmp_b_t x; acc_tmp_a_t y; acc_tmp_b_t z[7]; }; \
+     COMPILE_TIME_ASSERT(sizeof(struct acc_tmp_t) == 8*sizeof(b)+sizeof(a)) \
+   }
 #else
-#  define UNUSED(parm)      (parm = parm)
+#  define __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b) { \
+     struct acc_tmp_t { b x; a y; b z[7]; }; \
+     COMPILE_TIME_ASSERT(sizeof(struct acc_tmp_t) == 8*sizeof(b)+sizeof(a)) \
+   }
 #endif
 
-#define HIGH(array)         ((unsigned) (sizeof(array)/sizeof((array)[0])))
+#if defined(acc_alignof)
+#  define COMPILE_TIME_ASSERT_ALIGNOF(a,b) \
+     __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b) \
+     COMPILE_TIME_ASSERT(acc_alignof(a) == sizeof(b))
+#else
+#  define COMPILE_TIME_ASSERT_ALIGNOF(a,b) \
+     __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b)
+#endif
+
+#define TABLESIZE(table)    ((sizeof(table)/sizeof((table)[0])))
 
 #define ALIGN_DOWN(a,b)     (((a) / (b)) * (b))
 #define ALIGN_UP(a,b)       ALIGN_DOWN((a) + ((b) - 1), b)
+#define ALIGN_GAP(a,b)      (ALIGN_UP(a,b) - (a))
 
 #define UPX_MAX(a,b)        ((a) >= (b) ? (a) : (b))
 #define UPX_MIN(a,b)        ((a) <= (b) ? (a) : (b))
@@ -455,12 +373,10 @@ inline void operator delete[](void *p)
 
 // An Array allocates memory on the heap, but automatically
 // gets destructed when leaving scope or on exceptions.
-// "var" is declared as a read-only reference to a pointer
-// and behaves exactly like an array "var[]".
 #define Array(type, var, size) \
     assert((int)(size) > 0); \
     MemBuffer var ## _membuf((size)*(sizeof(type))); \
-    type * const & var = ((type *) var ## _membuf.getVoidPtr())
+    type * const var = ((type *) var ## _membuf.getVoidPtr())
 
 #define ByteArray(var, size)    Array(unsigned char, var, size)
 
@@ -504,7 +420,7 @@ inline void operator delete[](void *p)
 #define UPX_F_DOS_SYS           2
 #define UPX_F_DOS_EXE           3
 #define UPX_F_DJGPP2_COFF       4
-#define UPX_F_WC_LE             5
+#define UPX_F_WATCOM_LE         5
 #define UPX_F_VXD_LE            6
 #define UPX_F_DOS_EXEH          7               /* OBSOLETE */
 #define UPX_F_TMT_ADAM          8
@@ -547,7 +463,7 @@ extern const char *progname;
 void init_options(struct options_t *o);
 bool set_ec(int ec);
 #if defined(__GNUC__)
-void e_exit(int ec) __attribute__((noreturn));
+void e_exit(int ec) __attribute__((__noreturn__));
 #else
 void e_exit(int ec);
 #endif
@@ -559,26 +475,26 @@ void printClearLine(FILE *f = NULL);
 void printErr(const char *iname, const Throwable *e);
 void printUnhandledException(const char *iname, const std::exception *e);
 #if defined(__GNUC__)
-void printErr(const char *iname, const char *format, ...)
-        __attribute__((format(printf,2,3)));
-void printWarn(const char *iname, const char *format, ...)
-        __attribute__((format(printf,2,3)));
+void __acc_cdecl_va printErr(const char *iname, const char *format, ...)
+        __attribute__((__format__(printf,2,3)));
+void __acc_cdecl_va printWarn(const char *iname, const char *format, ...)
+        __attribute__((__format__(printf,2,3)));
 #else
-void printErr(const char *iname, const char *format, ...);
-void printWarn(const char *iname, const char *format, ...);
+void __acc_cdecl_va printErr(const char *iname, const char *format, ...);
+void __acc_cdecl_va printWarn(const char *iname, const char *format, ...);
 #endif
 
 #if defined(__GNUC__)
-void infoWarning(const char *format, ...)
-        __attribute__((format(printf,1,2)));
-void infoHeader(const char *format, ...)
-        __attribute__((format(printf,1,2)));
-void info(const char *format, ...)
-        __attribute__((format(printf,1,2)));
+void __acc_cdecl_va infoWarning(const char *format, ...)
+        __attribute__((__format__(printf,1,2)));
+void __acc_cdecl_va infoHeader(const char *format, ...)
+        __attribute__((__format__(printf,1,2)));
+void __acc_cdecl_va info(const char *format, ...)
+        __attribute__((__format__(printf,1,2)));
 #else
-void infoWarning(const char *format, ...);
-void infoHeader(const char *format, ...);
-void info(const char *format, ...);
+void __acc_cdecl_va infoWarning(const char *format, ...);
+void __acc_cdecl_va infoHeader(const char *format, ...);
+void __acc_cdecl_va info(const char *format, ...);
 #endif
 void infoHeader();
 void infoWriting(const char *what, long size);
@@ -616,6 +532,13 @@ int upx_test_overlap       ( const upx_bytep buf, upx_uint src_off,
 
 
 #endif /* __cplusplus */
+
+
+#if (ACC_OS_CYGWIN || ACC_OS_DOS16 || ACC_OS_DOS32 || ACC_OS_EMX || ACC_OS_OS2 || ACC_OS_OS216 || ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
+#  if defined(INVALID_HANDLE_VALUE) || defined(MAKEWORD) || defined(RT_CURSOR)
+#    error "something pulled in <windows.h>"
+#  endif
+#endif
 
 
 #endif /* already included */

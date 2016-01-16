@@ -1,9 +1,9 @@
-/* fctl_ml2.ch -- filter CTO implementation by ML1050
+/* fcto2.ch -- filter CTO implementation
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -44,7 +44,6 @@ static int F(filter_t *f)
     const unsigned size = f->buf_len;
 
     unsigned ic, jc, kc;
-    unsigned cto;
     unsigned char cto8;
     unsigned calls = 0, noncalls = 0, noncalls2 = 0;
     unsigned lastnoncall = size, lastcall = 0;
@@ -101,7 +100,10 @@ static int F(filter_t *f)
             return -1;
         cto8 = (unsigned char) ic;
     }
-    cto = (unsigned)cto8 << 24;
+
+#ifdef U
+    const unsigned cto = (unsigned)cto8 << 24;
+#endif
 
     for (ic = 0; ic < size - 5; ic++)
     {
@@ -163,7 +165,7 @@ static int U(filter_t *f)
     upx_byte *b = f->buf;
     const unsigned size5 = f->buf_len - 5;
     const unsigned addvalue = f->addvalue;
-    const unsigned cto = f->cto << 24;
+    const unsigned cto = (unsigned)f->cto << 24;
 
     unsigned ic, jc;
 

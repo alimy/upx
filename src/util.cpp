@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,33 +29,47 @@
 #include "conf.h"
 #include "util.h"
 
+#if (ACC_CC_MSC && (_MSC_VER >= 1000 && _MSC_VER < 1200))
+   /* avoid -W4 warnings in <conio.h> */
+#  pragma warning(disable: 4032)
+   /* avoid -W4 warnings in <windows.h> */
+#  pragma warning(disable: 4201 4214 4514)
+#endif
+#if 0
+#  include "acc/acc_lib.ch"
+#else
+#  include "acc/acc_inci.h"
+#  include "acc/acclib/misc.ch"
+#  include "acc/acclib/hsread.ch"
+#endif
+
 
 /*************************************************************************
 // qsort() util
 **************************************************************************/
 
-int be16_compare(const void *e1, const void *e2)
+int __acc_cdecl_qsort be16_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_be16(e1);
     const unsigned d2 = get_be16(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
-int be32_compare(const void *e1, const void *e2)
+int __acc_cdecl_qsort be32_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_be32(e1);
     const unsigned d2 = get_be32(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
-int le16_compare(const void *e1, const void *e2)
+int __acc_cdecl_qsort le16_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_le16(e1);
     const unsigned d2 = get_le16(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
-int le32_compare(const void *e1, const void *e2)
+int __acc_cdecl_qsort le32_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_le32(e1);
     const unsigned d2 = get_le32(e2);
@@ -63,28 +77,28 @@ int le32_compare(const void *e1, const void *e2)
 }
 
 
-int be16_compare_signed(const void *e1, const void *e2)
+int __acc_cdecl_qsort be16_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_be16_signed(e1);
     const int d2 = get_be16_signed(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
-int be32_compare_signed(const void *e1, const void *e2)
+int __acc_cdecl_qsort be32_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_be32_signed(e1);
     const int d2 = get_be32_signed(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
-int le16_compare_signed(const void *e1, const void *e2)
+int __acc_cdecl_qsort le16_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_le16_signed(e1);
     const int d2 = get_le16_signed(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
-int le32_compare_signed(const void *e1, const void *e2)
+int __acc_cdecl_qsort le32_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_le32_signed(e1);
     const int d2 = get_le32_signed(e2);
@@ -238,16 +252,22 @@ int upx_tolower(int c)
 // filename util
 **************************************************************************/
 
-static const char dir_sep[] = DIR_SEP;
+#if (ACC_OS_CYGWIN || ACC_OS_DOS16 || ACC_OS_DOS32 || ACC_OS_EMX || ACC_OS_OS2 || ACC_OS_OS16 || ACC_OS_TOS || ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
 
+static const char dir_sep[] = "/\\";
+#define fn_is_drive(s)      (s[0] && s[1] == ':')
 #define fn_is_sep(c)        (strchr(dir_sep,c) != NULL)
+#define fn_skip_drive(s)    (fn_is_drive(s) ? (s) + 2 : (s))
+#define fn_tolower(c)       (tolower(((unsigned char)(c))))
 
-#if defined(DOSISH)
-#define fn_is_drive(n)      (n[0] && n[1] == ':')
-#define fn_skip_drive(n)    (fn_is_drive(n) ? (n) + 2 : (n))
 #else
-#define fn_is_drive(n)      (0)
-#define fn_skip_drive(n)    (n)
+
+static const char dir_sep[] = "/";
+#define fn_is_drive(s)      (0)
+#define fn_is_sep(c)        ((c) == '/')
+#define fn_skip_drive(s)    (s)
+#define fn_tolower(c)       (c)
+
 #endif
 
 
@@ -324,7 +344,7 @@ int fn_strcmp(const char *n1, const char *n2)
 bool fn_is_same_file(const char *n1, const char *n2)
 {
     /* very simple... */
-    if (fn_strcmp(n1,n2) == 0)
+    if (fn_strcmp(n1, n2) == 0)
         return 1;
     return 0;
 }
@@ -510,25 +530,6 @@ bool makebakname(char *ofilename, size_t size,
 }
 
 
-/* test if fd is connected to a file or a pipe */
-bool isafile(int fd)
-{
-    if (isatty(fd))
-        return 0;
-#if defined(HAVE_FSTAT)
-    {
-        struct stat st;
-        if (fstat(fd, &st) != 0)
-            return 0;
-        /* fprintf(stderr,"fstat(%d): %o\n", fd, st.st_mode); */
-        if (S_ISDIR(st.st_mode))
-            return 0;
-    }
-#endif
-    return 1;
-}
-
-
 /*************************************************************************
 // return compression ratio, where 100% == 1000*1000 == 1e6
 **************************************************************************/
@@ -538,7 +539,15 @@ unsigned get_ratio(unsigned u_len, unsigned c_len)
     const unsigned n = 1000000;
     if (u_len <= 0)
         return c_len <= 0 ? 0 : n;
-    return (unsigned) ((c_len * (upx_uint64l)n) / u_len) + 5;
+#if defined(acc_uint64l_t)
+    return (unsigned) ((c_len * (acc_uint64l_t)n) / u_len);
+#else
+# if 0
+    return (unsigned) acc_umuldiv32(c_len, n, u_len);
+# else
+    return (unsigned) ((c_len * (double)n) / u_len);
+# endif
+#endif
 }
 
 
@@ -582,7 +591,7 @@ void free(__malloc_ptr_t ptr)
 extern "C" {
 
 #if defined(__DJGPP__)
-int _is_executable(const char *, int , const char *)
+int _is_executable(const char *, int, const char *)
 {
     return 0;
 }
@@ -593,8 +602,9 @@ time_t mktime(struct tm *)
     return 0;
 }
 
-time_t time(time_t *)
+time_t time(time_t *t)
 {
+    if (t) *t = 0;
     return 0;
 }
 #endif /* __DJGPP__ */
@@ -704,7 +714,7 @@ char *textdomain(const char *)
 #endif /* __linux__ && __GLIBC__ */
 
 
-}; // extern "C"
+} // extern "C"
 
 
 /*

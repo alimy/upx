@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -34,11 +34,38 @@
 //
 **************************************************************************/
 
-MemBuffer::MemBuffer(unsigned size) :
-    ptr(NULL), alloc_ptr(NULL), alloc_size(0)
+static int use_mcheck = -1;
+
+static int mcheck_init()
 {
-    if (size > 0)
-        alloc(size, 0);
+    if (use_mcheck < 0)
+    {
+        use_mcheck = 1;
+#if defined(WITH_VALGRIND) && defined(RUNNING_ON_VALGRIND)
+        if (RUNNING_ON_VALGRIND)
+        {
+            //fprintf(stderr, "upx: detected RUNNING_ON_VALGRIND\n");
+            use_mcheck = 0;
+        }
+#endif
+    }
+    return use_mcheck;
+}
+
+
+/*************************************************************************
+//
+**************************************************************************/
+
+MemBuffer::MemBuffer() :
+    b(NULL), b_size(0)
+{
+}
+
+MemBuffer::MemBuffer(unsigned size) :
+    b(NULL), b_size(0)
+{
+    alloc(size);
 }
 
 
@@ -49,59 +76,124 @@ MemBuffer::~MemBuffer()
 
 void MemBuffer::dealloc()
 {
-    if (alloc_ptr)
-        ::free(alloc_ptr);
-    alloc_ptr = ptr = NULL;
-    alloc_size = 0;
-}
-
-
-unsigned MemBuffer::getSize() const
-{
-    if (!alloc_ptr)
-        return 0;
-    unsigned size = alloc_size - (ptr - alloc_ptr);
-    assert((int)size > 0);
-    return size;
-}
-
-
-void MemBuffer::alloc(unsigned size, unsigned base_offset)
-{
-    // NOTE: we don't automaticlly free a used buffer
-    assert(alloc_ptr == NULL);
-    assert((int)size > 0);
-    size = base_offset + size;
-    alloc_ptr = (unsigned char *) malloc(size);
-    if (!alloc_ptr)
+    if (b)
     {
-        //throw bad_alloc();
-        throwCantPack("out of memory");
-        //exit(1);
+        checkState();
+        if (use_mcheck)
+        {
+            // remove magic constants
+            set_be32(b - 8, 0);
+            set_be32(b - 4, 0);
+            set_be32(b + b_size, 0);
+            set_be32(b + b_size + 4, 0);
+            //
+            ::free(b - 8);
+        }
+        else
+            ::free(b);
+        b = NULL;
+        b_size = 0;
     }
-    alloc_size = size;
-    ptr = alloc_ptr + base_offset;
+    else
+        assert(b_size == 0);
+}
+
+
+void MemBuffer::allocForCompression(unsigned uncompressed_size, unsigned extra)
+{
+    assert((int)uncompressed_size > 0);
+    assert((int)extra >= 0);
+    unsigned size = uncompressed_size + uncompressed_size/8 + 256 + extra;
+    alloc(size);
+}
+
+
+void MemBuffer::allocForUncompression(unsigned uncompressed_size, unsigned extra)
+{
+    assert((int)uncompressed_size > 0);
+    assert((int)extra >= 0);
+    unsigned size = uncompressed_size + extra;
+//    size += 512;   // 512 safety bytes
+    // INFO: 3 bytes are the allowed overrun for the i386 asm_fast decompressors
+#if (ACC_ARCH_IA32)
+    size += 3;
+#endif
+    alloc(size);
+}
+
+
+void MemBuffer::fill(unsigned off, unsigned len, int value)
+{
+    checkState();
+    assert((int)off >= 0);
+    assert((int)len >= 0);
+    assert(off <= b_size);
+    assert(len <= b_size);
+    assert(off + len <= b_size);
+    if (len > 0)
+        memset(b + off, value, len);
+}
+
+
+/*************************************************************************
+//
+**************************************************************************/
+
+#define PTR(p)      ((unsigned) ((acc_uintptr_t)(p) & 0xffffffff))
+#define MAGIC1(p)   (PTR(p) ^ 0xfefdbeeb)
+#define MAGIC2(p)   (PTR(p) ^ 0xfefdbeeb ^ 0x80024001)
+
+unsigned MemBuffer::global_alloc_counter = 0;
+
+
+void MemBuffer::checkState() const
+{
+    if (!b)
+        throwInternalError("block not allocated");
+    if (use_mcheck)
+    {
+        if (get_be32(b - 4) != MAGIC1(b))
+            throwInternalError("memory clobbered before allocated block 1");
+        if (get_be32(b - 8) != b_size)
+            throwInternalError("memory clobbered before allocated block 2");
+        if (get_be32(b + b_size) != MAGIC2(b))
+            throwInternalError("memory clobbered past end of allocated block");
+    }
+    assert((int)b_size > 0);
 }
 
 
 void MemBuffer::alloc(unsigned size)
 {
-    alloc(size, 0);
-}
+    if (use_mcheck < 0)
+        mcheck_init();
 
-
-void MemBuffer::allocForCompression(unsigned uncompressed_size)
-{
-    assert((int)uncompressed_size > 0);
-    alloc(uncompressed_size + uncompressed_size/8 + 256, 0);
-}
-
-
-void MemBuffer::allocForUncompression(unsigned uncompressed_size)
-{
-    assert((int)uncompressed_size > 0);
-    //alloc(uncompressed_size + 3 + 512, 0);  // 512 safety bytes
-    alloc(uncompressed_size + 3, 0);  // 3 bytes for asm_fast decompresion
+    // NOTE: we don't automatically free a used buffer
+    assert(b == NULL);
+    assert(b_size == 0);
+    //
+    assert((int)size > 0);
+    unsigned total = use_mcheck ? size + 16 : size;
+    assert((int)total > 0);
+    unsigned char *p = (unsigned char *) malloc(total);
+    if (!p)
+    {
+        //throw bad_alloc();
+        throw OutOfMemoryException("out of memory");
+        //exit(1);
+    }
+    b_size = size;
+    if (use_mcheck)
+    {
+        b = p + 8;
+        // store magic constants to detect buffer overruns
+        set_be32(b - 8, b_size);
+        set_be32(b - 4, MAGIC1(b));
+        set_be32(b + b_size, MAGIC2(b));
+        set_be32(b + b_size + 4, global_alloc_counter++);
+    }
+    else
+        b = p ;
 }
 
 

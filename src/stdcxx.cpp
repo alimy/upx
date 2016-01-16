@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,6 +29,20 @@
 //#define WANT_STL
 #include "conf.h"
 #include "stdcxx.h"
+
+
+#if 1 && defined(__linux__) && (ACC_CC_GNUC >= 0x030400)
+/* this is used by __gnu_cxx::__verbose_terminate_handler() */
+extern "C" {
+char * __attribute__((__weak__)) __cxa_demangle(const char *, char *, size_t *, int *);
+char *__cxa_demangle(const char *mangled_name, char *buf, size_t *n, int *status)
+{
+    UNUSED(mangled_name); UNUSED(buf); UNUSED(n);
+    if (status) *status = -1; /* memory_allocation_failure */
+    return NULL;
+}
+} /* extern "C" */
+#endif
 
 
 #ifdef WANT_STL

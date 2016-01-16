@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -44,7 +44,6 @@ bool maketempname(char *ofilename, size_t size,
                   const char *ifilename, const char *ext, bool force=true);
 bool makebakname(char *ofilename, size_t size,
                  const char *ifilename, bool force=true);
-bool isafile(int fd);
 
 unsigned get_ratio(unsigned u_len, unsigned c_len);
 bool set_method_name(char *buf, size_t size, int method, int level);

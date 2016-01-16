@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -55,7 +55,9 @@ void init_options(struct options_t *o)
     o->overlay = -1;
 
     o->console = CON_FILE;
-#if defined(__MFX_DOS) || defined(__MFX_WIN)
+#if defined(__DJGPP__)
+    o->console = CON_INIT;
+#elif defined(USE_SCREEN_WIN32)
     o->console = CON_INIT;
 #elif 1 && defined(__linux__)
     o->console = CON_INIT;
@@ -65,7 +67,7 @@ void init_options(struct options_t *o)
     o->w32pe.compress_exports = 1;
     o->w32pe.compress_icons = 2;
     o->w32pe.compress_resources = -1;
-    for (unsigned i = 0; i < HIGH(opt->w32pe.compress_rt); i++)
+    for (unsigned i = 0; i < TABLESIZE(opt->w32pe.compress_rt); i++)
         opt->w32pe.compress_rt[i] = -1;
     opt->w32pe.compress_rt[24] = false;     // 24 == RT_MANIFEST
     o->w32pe.strip_relocs = -1;
@@ -90,7 +92,7 @@ static int exit_code = EXIT_OK;
 **************************************************************************/
 
 #if defined(__GNUC__)
-static void do_exit(void) __attribute__((noreturn));
+static void do_exit(void) __attribute__((__noreturn__));
 #endif
 static void do_exit(void)
 {
@@ -204,7 +206,7 @@ void e_envopt(const char *n)
 #endif /* defined(OPTIONS_VAR) */
 
 
-RETSIGTYPE SIGTYPEENTRY e_sighandler(int signum)
+void __acc_cdecl_sighandler e_sighandler(int signum)
 {
     UNUSED(signum);
     e_exit(EXIT_FATAL);
@@ -309,7 +311,7 @@ static void set_output_name(const char *n, bool allow_m)
         fprintf(stderr,"%s: missing output name\n",argv0);
         e_usage();
     }
-    if (strlen(n) >= PATH_MAX - 4)
+    if (strlen(n) >= ACC_FN_PATH_MAX - 4)
     {
         fprintf(stderr,"%s: output name too long\n",argv0);
         e_usage();
@@ -368,7 +370,7 @@ char* prepare_shortopts(char *buf, const char *n,
 
 
 template <class T>
-int getoptvar(T *var, T minval, T maxval)
+int getoptvar(T *var, const T minval, const T maxval)
 {
     const char *p = mfx_optarg;
     char *endptr;
@@ -540,7 +542,7 @@ static int do_option(int optc, const char *arg)
         getoptvar(&opt->crp.max_match, 16u, ~0u);
         break;
     case 537:
-        if (getoptvar(&opt->crp.m_size, 10000u, (unsigned)999999u) != 0)
+        if (getoptvar(&opt->crp.m_size, 10000u, 999999u) != 0)
             e_optval("--crp-ms=");
         break;
     // backup
@@ -630,7 +632,7 @@ static int do_option(int optc, const char *arg)
         opt->tos.split_segments = true;
         break;
     case 660:
-        getoptvar(&opt->unix.blocksize, 8192u, ~0u);
+        getoptvar(&opt->o_unix.blocksize, 8192u, ~0u);
         break;
 
     case '\0':
@@ -921,85 +923,37 @@ static void first_options(int argc, char **argv)
 
 void upx_sanity_check(void)
 {
-    COMPILE_TIME_ASSERT(sizeof(char) == 1);
-    COMPILE_TIME_ASSERT(sizeof(short) == 2);
-    COMPILE_TIME_ASSERT(sizeof(int) == 4);
-    COMPILE_TIME_ASSERT(sizeof(long) >= 4);
-    COMPILE_TIME_ASSERT(sizeof(void *) >= 4);
-    COMPILE_TIME_ASSERT(sizeof(long) >= sizeof(void *));
+#include "acc/acc_chk.ch"
 
-    COMPILE_TIME_ASSERT(sizeof(upx_int64l) >= 8);
-    COMPILE_TIME_ASSERT(sizeof(upx_int64l) >= sizeof(long));
-    COMPILE_TIME_ASSERT(sizeof(upx_int64l) == sizeof(upx_uint64l));
+    COMPILE_TIME_ASSERT(sizeof(char) == 1)
+    COMPILE_TIME_ASSERT(sizeof(short) == 2)
+    COMPILE_TIME_ASSERT(sizeof(int) == 4)
+    COMPILE_TIME_ASSERT(sizeof(long) >= 4)
+    COMPILE_TIME_ASSERT(sizeof(void *) >= 4)
 
-    COMPILE_TIME_ASSERT(sizeof(off_t) >= sizeof(long));
-    COMPILE_TIME_ASSERT(((off_t) -1) < 0);
-    COMPILE_TIME_ASSERT(sizeof(ptrdiff_t) >= sizeof(int));
-    COMPILE_TIME_ASSERT(((ptrdiff_t) -1) < 0);
-    COMPILE_TIME_ASSERT(sizeof(size_t) >= sizeof(int));
-    COMPILE_TIME_ASSERT(((size_t) -1) > 0);
+    COMPILE_TIME_ASSERT(sizeof(off_t) >= sizeof(long))
+    COMPILE_TIME_ASSERT(((off_t) -1) < 0)
 
-    COMPILE_TIME_ASSERT(sizeof(BE16) == 2);
-    COMPILE_TIME_ASSERT(sizeof(BE32) == 4);
-    COMPILE_TIME_ASSERT(sizeof(LE16) == 2);
-    COMPILE_TIME_ASSERT(sizeof(LE32) == 4);
+    COMPILE_TIME_ASSERT(sizeof(BE16) == 2)
+    COMPILE_TIME_ASSERT(sizeof(BE32) == 4)
+    COMPILE_TIME_ASSERT(sizeof(LE16) == 2)
+    COMPILE_TIME_ASSERT(sizeof(LE32) == 4)
 
-#if defined(__GNUC__)
-    COMPILE_TIME_ASSERT(__alignof__(BE16) == 1);
-    COMPILE_TIME_ASSERT(__alignof__(BE32) == 1);
-    COMPILE_TIME_ASSERT(__alignof__(LE16) == 1);
-    COMPILE_TIME_ASSERT(__alignof__(LE32) == 1);
-#endif
+    COMPILE_TIME_ASSERT_ALIGNOF(BE16, char)
+    COMPILE_TIME_ASSERT_ALIGNOF(BE32, char)
+    COMPILE_TIME_ASSERT_ALIGNOF(LE16, char)
+    COMPILE_TIME_ASSERT_ALIGNOF(LE32, char)
 
-#if !defined(__WATCOMC__)
-    struct align_assertion_1a_t
-    {
-        struct foo_t {
-            char c1;
-            LE16 v[4];
-        } __attribute_packed;
-        foo_t d[3];
-    } __attribute_packed;
-    struct align_assertion_1b_t
-    {
-        struct foo_t {
-            char c1;
-            char v[4*2];
-        } __attribute_packed;
-        foo_t d[3];
-    } __attribute_packed;
-    struct align_assertion_2a_t
-    {
-        struct foo_t {
-            char c1;
-            LE32 v[4];
-        } __attribute_packed;
-        foo_t d[3];
-    } __attribute_packed;
-    struct align_assertion_2b_t
-    {
-        struct foo_t {
-            char c1;
-            char v[4*4];
-        } __attribute_packed;
-        foo_t d[3];
-    } __attribute_packed;
-
-    //printf("%d\n", (int) sizeof(align_assertion_1a_t));
-    //printf("%d\n", (int) sizeof(align_assertion_1b_t));
-    //printf("%d\n", (int) sizeof(align_assertion_2a_t));
-    //printf("%d\n", (int) sizeof(align_assertion_2b_t));
-    COMPILE_TIME_ASSERT(sizeof(align_assertion_1a_t) == sizeof(align_assertion_1b_t));
-    COMPILE_TIME_ASSERT(sizeof(align_assertion_2a_t) == sizeof(align_assertion_2b_t));
-    COMPILE_TIME_ASSERT(sizeof(align_assertion_1a_t) == 3*9);
-    COMPILE_TIME_ASSERT(sizeof(align_assertion_2a_t) == 3*17);
-#endif
-
-    COMPILE_TIME_ASSERT(sizeof(UPX_VERSION_STRING4) == 4 + 1);
+    COMPILE_TIME_ASSERT(sizeof(UPX_VERSION_STRING4) == 4 + 1)
     assert(strlen(UPX_VERSION_STRING4) == 4);
     assert(memcmp(UPX_VERSION_STRING4, UPX_VERSION_STRING, 4) == 0);
 
+#if 1
     const unsigned char dd[4] = { 0xff, 0xfe, 0xfd, 0xfc };
+    assert(upx_adler32(dd, 4) == 0x09f003f7);
+    assert(upx_adler32(dd, 4, 0) == 0x09ec03f6);
+    assert(upx_adler32(dd, 4, 1) == 0x09f003f7);
+
     assert(get_be16(dd) == 0xfffe);
     assert(get_be16_signed(dd) == -2);
     assert(get_be24(dd) == 0xfffefd);
@@ -1016,6 +970,7 @@ void upx_sanity_check(void)
     assert(find_le16(dd, sizeof(dd), 0xfeff) == 0);
     assert(find_be32(dd, sizeof(dd), 0xfffefdfc) == 0);
     assert(find_le32(dd, sizeof(dd), 0xfcfdfeff) == 0);
+#endif
 }
 
 
@@ -1025,7 +980,7 @@ void upx_sanity_check(void)
 
 #if !defined(WITH_GUI)
 
-int main(int argc, char *argv[])
+int __acc_cdecl_main main(int argc, char *argv[])
 {
     int i;
     static char default_argv0[] = "upx";
@@ -1051,7 +1006,7 @@ int main(int argc, char *argv[])
     if (!argv[0] || !argv[0][0])
         argv[0] = default_argv0;
     argv0 = argv[0];
-#if defined(DOSISH)
+#if (ACC_OS_CYGWIN || ACC_OS_DOS16 || ACC_OS_DOS32 || ACC_OS_EMX || ACC_OS_TOS || ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
     {
         char *prog = fn_basename(argv0);
         char *p;
@@ -1072,6 +1027,8 @@ int main(int argc, char *argv[])
 #else
     progname = fn_basename(argv0);
 #endif
+    while (progname[0] == '.' && progname[1] == '/'  && progname[2])
+        progname += 2;
 
     set_term(stderr);
 
@@ -1177,13 +1134,13 @@ int main(int argc, char *argv[])
         int fg = con_fg(f,FG_RED);
         con_fprintf(f,"\nWARNING: this is an unstable beta version - use for testing only! Really.\n");
         fg = con_fg(f,fg);
+        UNUSED(fg);
     }
 #endif
 
 #if 0 && defined(__GLIBC__)
     //malloc_stats();
 #endif
-    do_exit();
     return exit_code;
 }
 

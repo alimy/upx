@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -35,7 +35,7 @@
 
 long Throwable::counter = 0;
 
-Throwable::Throwable(const char *m, int e, bool w)
+Throwable::Throwable(const char *m, int e, bool w) NOTHROW
     : super(), msg(NULL), err(e), is_warning(w)
 {
     if (m)
@@ -47,7 +47,7 @@ Throwable::Throwable(const char *m, int e, bool w)
 }
 
 
-Throwable::Throwable(Throwable const &other)
+Throwable::Throwable(const Throwable &other) NOTHROW
     : super(other), msg(NULL), err(other.err), is_warning(other.is_warning)
 {
     if (other.msg)
@@ -174,20 +174,22 @@ void throwEOFException(const char *msg, int e)
 //
 **************************************************************************/
 
-const char *prettyName(const char *n)
+const char *prettyName(const char *n) NOTHROW
 {
     if (n == NULL)
-        return "";
-    while (*n >= '0' && *n <= '9')              // gcc
-        n++;
-    if (strncmp(n, "class ", 6) == 0)           // Visual C++
-        n += 6;
+        return "(null)";
+    while (*n)
+    {
+        if (*n >= '0' && *n <= '9')             // Linux ABI
+            n++;
+        else if (*n == ' ')
+            n++;
+        else if (strncmp(n, "class ", 6) == 0)  // Visual C++
+            n += 6;
+        else
+            break;
+    }
     return n;
-}
-
-const char *prettyName(const std::type_info &ti)
-{
-    return prettyName(ti.name());
 }
 
 

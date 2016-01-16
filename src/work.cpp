@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -33,12 +33,18 @@
 #include "ui.h"
 
 
+#define ALWAYS_CHMOD 1
 #if defined(__DJGPP__)
-#  define USE_FTIME
-#elif defined(__MFX_WIN32) && defined(_MSC_VER)
-#  define USE__FUTIME
+#  define USE_FTIME 1
+#  undef ALWAYS_CHMOD
+#elif (ACC_OS_WIN32 && ACC_CC_MWERKS) && defined(__MSL__)
+#  include <utime.h>
+#  define USE_UTIME 1
+#elif ((ACC_OS_WIN32 || ACC_OS_WIN64) && (ACC_CC_INTELC || ACC_CC_MSC))
+#  define USE__FUTIME 1
+#  undef ALWAYS_CHMOD
 #elif defined(HAVE_UTIME)
-#  define USE_UTIME
+#  define USE_UTIME 1
 #endif
 
 #if !defined(SH_DENYRW)
@@ -105,12 +111,12 @@ void do_one_file(const char *iname, char *oname)
     {
         if (opt->to_stdout)
         {
-            if (!fo.openStdout(O_BINARY, opt->force ? true : false))
+            if (!fo.openStdout(1, opt->force ? true : false))
                 throwIOException("data not written to a terminal; Use `-f' to force.");
         }
         else
         {
-            char tname[PATH_MAX+1];
+            char tname[ACC_FN_PATH_MAX+1];
             if (opt->output_name)
                 strcpy(tname,opt->output_name);
             else
@@ -135,7 +141,7 @@ void do_one_file(const char *iname, char *oname)
             flags |= O_TRUNC;
             shmode = O_DENYRW;
 #endif
-#if defined(__DJGPP__) || defined(_MSC_VER)
+#if !defined(ALWAYS_CHMOD)
             // we can avoid the chmod() call below
             int omode = st.st_mode;
             fo.sopen(tname,flags,shmode,omode);
@@ -201,7 +207,7 @@ void do_one_file(const char *iname, char *oname)
         else
         {
             // make backup
-            char bakname[PATH_MAX+1];
+            char bakname[ACC_FN_PATH_MAX+1];
             if (!makebakname(bakname, sizeof(bakname), iname))
                 throwIOException("could not create a backup file name");
             File::rename(iname,bakname);
@@ -268,7 +274,7 @@ void do_files(int i, int argc, char *argv[])
         infoHeader();
 
         const char *iname = argv[i];
-        char oname[PATH_MAX+1];
+        char oname[ACC_FN_PATH_MAX+1];
         oname[0] = 0;
 
         try {

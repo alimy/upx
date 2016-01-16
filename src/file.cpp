@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -46,7 +46,7 @@ void File::chmod(const char *name, int mode)
 
 void File::rename(const char *old_, const char *new_)
 {
-#if 1 && defined(__DJGPP__)
+#if defined(__DJGPP__)
     if (::_rename(old_,new_) != 0)
 #else
     if (::rename(old_,new_) != 0)
@@ -128,29 +128,13 @@ void FileBase::closex()
 
 int FileBase::read(void *buf, int len)
 {
-    int l;
     if (!isOpen() || len < 0)
         throwIOException("bad read");
-    if (len == 0)
-        return 0;
-    for (;;)
-    {
-#if 1 && defined(__DJGPP__)
-        l = ::_read(_fd, buf, len);
-#else
-        l = ::read(_fd, buf, len);
-#endif
-        if (l < 0)
-        {
-#if defined(EINTR)
-            if (errno == EINTR)
-                continue;
-#endif
-            throwIOException("read error",errno);
-        }
-        break;
-    }
-    return l;
+    errno = 0;
+    long l = acc_safe_hread(_fd, buf, len);
+    if (errno)
+        throwIOException("read error",errno);
+    return (int) l;
 }
 
 
@@ -165,26 +149,12 @@ int FileBase::readx(void *buf, int len)
 
 void FileBase::write(const void *buf, int len)
 {
-    int l;
     if (!isOpen() || len < 0)
         throwIOException("bad write");
-    if (len == 0)
-        return;
-    for (;;)
-    {
-#if 1 && defined(__DJGPP__)
-        l = ::_write(_fd,buf,len);
-#else
-        l = ::write(_fd,buf,len);
-#endif
-#if defined(EINTR)
-        if (l < 0 && errno == EINTR)
-            continue;
-#endif
-        if (l != len)
-            throwIOException("write error",errno);
-        break;
-    }
+    errno = 0;
+    long l = acc_safe_hwrite(_fd, buf, len);
+    if (l != len)
+        throwIOException("write error",errno);
 }
 
 
@@ -259,14 +229,16 @@ int InputFile::readx(void *buf, int len)
 
 int InputFile::read(MemBuffer *buf, int len)
 {
+    buf->checkState();
     assert((unsigned)len <= buf->getSize());
-    return super::read(buf->getVoidPtr(), len);
+    return read(buf->getVoidPtr(), len);
 }
 
 int InputFile::readx(MemBuffer *buf, int len)
 {
+    buf->checkState();
     assert((unsigned)len <= buf->getSize());
-    return super::readx(buf->getVoidPtr(), len);
+    return read(buf->getVoidPtr(), len);
 }
 
 
@@ -335,29 +307,16 @@ void OutputFile::sopen(const char *name, int flags, int shflags, int mode)
 bool OutputFile::openStdout(int flags, bool force)
 {
     close();
-    if (!force)
-    {
-        if (!isafile(STDOUT_FILENO))
-            return false;
-    }
-    _fd = STDOUT_FILENO;
+    int fd = STDOUT_FILENO;
+    if (!force && acc_isatty(fd))
+        return false;
     _name = "<stdout>";
     _flags = flags;
     _shflags = -1;
     _mode = 0;
-    if (flags != 0)
-    {
-        assert(flags == O_BINARY);
-#if defined(__MINT__)
-        __set_binmode(stdout, 1);
-#elif defined(HAVE_SETMODE) && defined(USE_SETMODE)
-        if (setmode(_fd, O_BINARY) == -1)
-            throwIOException(_name,errno);
-#if defined(__DJGPP__)
-        __djgpp_set_ctrl_c(1);
-#endif
-#endif
-    }
+    if (flags && acc_set_binmode(fd, 1) == -1)
+        throwIOException(_name, errno);
+    _fd = fd;
     return true;
 }
 
@@ -369,13 +328,27 @@ void OutputFile::write(const void *buf, int len)
 }
 
 
+void OutputFile::write(const MemBuffer *buf, int len)
+{
+    buf->checkState();
+    assert((unsigned)len <= buf->getSize());
+    write(buf->getVoidPtr(), len);
+}
+
+
+void OutputFile::write(const MemBuffer &buf, int len)
+{
+    write(&buf, len);
+}
+
+
 void OutputFile::dump(const char *name, const void *buf, int len, int flags)
 {
     if (flags < 0)
          flags = O_CREAT | O_BINARY | O_TRUNC;
     flags |= O_WRONLY;
     OutputFile f;
-    f.open(name, flags, 0666);
+    f.open(name, flags, 0600);
     f.write(buf, len);
     f.closex();
 }

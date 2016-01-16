@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,6 +25,7 @@
    <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
+
 #include "conf.h"
 #include "file.h"
 #include "filter.h"
@@ -33,14 +34,8 @@
 
 static const
 #include "stub/l_djgpp2.h"
-
-#if 0
 static const
 #include "stub/stubify.h"
-#else
-static const
-#include "stub/djstub.h"
-#endif
 
 
 /*************************************************************************
@@ -53,10 +48,12 @@ PackDjgpp2::PackDjgpp2(InputFile *f) :
     COMPILE_TIME_ASSERT(sizeof(external_scnhdr_t) == 40);
     COMPILE_TIME_ASSERT(sizeof(coff_header_t) == 0xa8);
     COMPILE_TIME_ASSERT(sizeof(stubify_stub) == 2048);
-#if defined(STUBIFY_STUB_ADLER32)
+    COMPILE_TIME_ASSERT_ALIGNOF(external_scnhdr_t, char)
+    COMPILE_TIME_ASSERT_ALIGNOF(coff_header_t, char)
+    COMPILE_TIME_ASSERT(STUBIFY_STUB_ADLER32 == 0xbf689ba8);
+    COMPILE_TIME_ASSERT(STUBIFY_STUB_CRC32   == 0x2ae982b2);
     //printf("0x%08x\n", upx_adler32(stubify_stub, sizeof(stubify_stub)));
     assert(upx_adler32(stubify_stub, sizeof(stubify_stub)) == STUBIFY_STUB_ADLER32);
-#endif
 }
 
 

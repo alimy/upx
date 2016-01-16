@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -309,7 +309,7 @@ static int init(screen_t *this, int fd)
     this->data->sb_base = 0;
     this->data->sb_sp = 0;
 #endif
-    if (fd < 0 || !isatty(fd))
+    if (fd < 0 || !acc_isatty(fd))
         return -1;
     if (getPage(this) != 0)
         return -1;

@@ -93,7 +93,7 @@ bool PackUnix::checkCompressionRatio(unsigned, unsigned) const
 void PackUnix::pack(OutputFile *fo)
 {
     // set options
-    blocksize = opt->unix.blocksize;
+    blocksize = opt->o_unix.blocksize;
     if (blocksize <= 0)
         blocksize = BLOCKSIZE;
     if ((off_t)blocksize > file_size)

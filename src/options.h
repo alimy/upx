@@ -109,7 +109,7 @@ struct options_t {
     } tos;
     struct {
         unsigned blocksize;
-    } unix;
+    } o_unix;
     struct {
         bool le;
     } wcle;

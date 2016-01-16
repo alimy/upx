@@ -7,7 +7,7 @@
 
 ifeq ($(strip $(UCLDIR)),)
 # change this to reflect where the UCL library is
-UCLDIR = $(HOME)/local/src/ucl-1.01
+UCLDIR = $(HOME)/local/src/ucl-1.02
 endif
 
 
@@ -17,8 +17,8 @@ endif
 
 SHELL = /bin/sh
 
-top_srcdir = ../..
 srcdir = .
+top_srcdir = ../..
 
 
 # These are the files we want to create.
@@ -57,8 +57,8 @@ vpath %.ash $(UCL_M68K)
 # // tools
 # ************************************************************************/
 
-NASM     = nasm -O2 -w+macro-params -w+orphan-labels
-NASM    += -i$(srcdir)/
+NASM     = nasm -O15 -w+macro-params -w+macro-selfref -w+number-overflow -w+orphan-labels
+NASM    += -I$(srcdir)/
 
 APP_I386 = perl -w $(srcdir)/scripts/app_i386.pl
 BIN2H    = perl -w $(srcdir)/scripts/bin2h.pl
@@ -67,23 +67,56 @@ O2BIN    = perl -w $(srcdir)/scripts/o2bin.pl
 STRIPELF = perl -w $(srcdir)/scripts/stripelf.pl
 VERSION  = perl -w $(srcdir)/scripts/version.pl
 
-# Compiler for the Linux/386 stubs.
-ifeq (1,2)
-  CC_LINUX_I386 = gcc272 -m386 -O2
-else
-  # gcc 2.95.3 seems to produce the smallest code
-  # (specifying -mcpu=i586 inhibits use of 'leave', which costs 2 bytes per subr)
-  CC_LINUX_I386 = gcc-2.95 -march=i386 -mcpu=i386 -Os -fno-strict-aliasing
-endif
-CC_LINUX_I386 += -malign-functions=0 -malign-jumps=0 -malign-loops=0
-CC_LINUX_I386 += -Werror
+
+###
+### linux/i386
+###
+
+LD_LINUX_I386 = ld
+LD_LINUX_I386 = ld-2.13.2
+OBJCOPY_LINUX_I386 = objcopy
+
+# gcc 2.7.2.3 (l_lx_*.bin: 1568 / 1588 / 1604)
+CC_LINUX_I386_GCC272  = gcc-2.72 -m386 -O2 -MMD
+CC_LINUX_I386_GCC272 += -malign-functions=0 -malign-jumps=0 -malign-loops=0
+
+# gcc 2.95.3 (l_lx_*.bin: 1588 / 1608 / 1624)
+CC_LINUX_I386_GCC295  = gcc-2.95 -march=i386 -mcpu=k6 -fno-exceptions -MMD
+CC_LINUX_I386_GCC295 += -Os -fno-omit-frame-pointer
+CC_LINUX_I386_GCC295 += -malign-functions=0 -malign-jumps=0 -malign-loops=0
+CC_LINUX_I386_GCC295 += -Werror
+
+# gcc 3.4.0 (l_lx_*.bin: 1468 / 1488 / 1504)
+CC_LINUX_I386_GCC340  = gcc-3.4 -march=i386 -mtune=k6 -fno-exceptions -MMD
+CC_LINUX_I386_GCC340 += -Os -fno-omit-frame-pointer
+CC_LINUX_I386_GCC340 += -momit-leaf-frame-pointer
+CC_LINUX_I386_GCC340 += -fno-align-functions -fno-align-jumps -fno-align-labels -fno-align-loops
+##CC_LINUX_I386_GCC340 += -fweb
+CC_LINUX_I386_GCC340 += -Werror
+
+CC_LINUX_I386  = $(CC_LINUX_I386_GCC272)
+CC_LINUX_I386  = $(CC_LINUX_I386_GCC295)
+CC_LINUX_I386  = $(CC_LINUX_I386_GCC340)
+CC_LINUX_I386 += -nostdinc
 CC_LINUX_I386 += -Wall -W -Wcast-align -Wcast-qual -Wwrite-strings
 CC_LINUX_I386 += -funsigned-char
-###CC_LINUX_I386 += -fwritable-strings -save-temps
 
-# Preprocessor for the a68k 68000-assembler.
-CPP_M68K = gcc -I$(UCL_UPX) -E -x assembler-with-cpp -Wall -Wp,-P,-C,-traditional,-nostdinc -D__A68K__
-ASM_M68K = a68k -q -x
+
+###
+### Motorola 68000
+###
+
+CPP_M68K  = gcc-2.72 -nostdinc -I$(UCL_UPX) -I$(srcdir) -E -x assembler-with-cpp -Wall -Wp,-P,-C,-traditional
+APP_M68K  = perl -w $(srcdir)/scripts/app_m68k.pl
+ifeq (1,1)
+  # a68k 68000-assembler
+  CPP_M68K += -D__A68K__
+  ASM_M68K  = a68k -q -x
+else
+  # asl 68000-assembler
+  CPP_M68K += -D__ASL__
+  ASM_M68K  = sh $(srcdir)/scripts/asl_m68k.sh
+endif
 
 
 # /***********************************************************************
@@ -96,12 +129,13 @@ default:
 	@echo "UPX info: type 'make all' if you have all the required build tools."
 
 all: stubs
+	@echo "timestamp" > stamp-h
 
 stubs: $(STUBS)
 
 
 mostlyclean:
-	-rm -f *~ *.bin *.bkp *.i *.lst *.map stubify.exe
+	-rm -f *.bin *.bkp *.d *.i *.lst *.map stubify.exe
 	-rm -f *.o *.asx *.asy
 
 clean: mostlyclean
@@ -139,7 +173,7 @@ version.asy: ../version.h
 
 
 stubify.h: stub.asm
-	djasm $< stubify.exe
+	djasm --gmtime=1070220810 --iname=stub.asm --oname=stub.h $< stubify.exe
 	$(BIN2H) stubify.exe stubify_stub $@ -q
 
 l_com.h: l_com.asx
@@ -220,9 +254,10 @@ l_t_n2es.h: l_tos.s
 # // linux rules
 # ************************************************************************/
 
-l_lx_n2b.h: l_linux.c l_xe_n2b.o
+l_lx_n2b.h: l_linux.c l_xe_n2b.o linux.hh
 	$(CC_LINUX_I386) -DNRV2B -s -o $T.o -c $<
-	ld -s -Map $T.map -o $T.bin l_xe_n2b.o $T.o
+	$(LD_LINUX_I386) -Map $T.map -o $T.bin l_xe_n2b.o $T.o
+	chmod a-x $T.bin
 	objcopy -S -R .comment -R .note $T.bin
 	$(STRIPELF) $T.bin
 	$(BRANDELF) $T.bin
@@ -231,9 +266,10 @@ l_lx_n2b.h: l_linux.c l_xe_n2b.o
 l_xe_n2b.o: l_linuxe.asm
 	$(NASM) -i$(UCL_I386)/ -f elf -dNRV2B -o $@ $<
 
-l_lx_n2d.h: l_linux.c l_xe_n2d.o
+l_lx_n2d.h: l_linux.c l_xe_n2d.o linux.hh
 	$(CC_LINUX_I386) -DNRV2D -s -o $T.o -c $<
-	ld -s -Map $T.map -o $T.bin l_xe_n2d.o $T.o
+	$(LD_LINUX_I386) -Map $T.map -o $T.bin l_xe_n2d.o $T.o
+	chmod a-x $T.bin
 	objcopy -S -R .comment -R .note $T.bin
 	$(STRIPELF) $T.bin
 	$(BRANDELF) $T.bin
@@ -242,9 +278,10 @@ l_lx_n2d.h: l_linux.c l_xe_n2d.o
 l_xe_n2d.o: l_linuxe.asm
 	$(NASM) -i$(UCL_I386)/ -f elf -dNRV2D -o $@ $<
 
-l_lx_n2e.h: l_linux.c l_xe_n2e.o
+l_lx_n2e.h: l_linux.c l_xe_n2e.o linux.hh
 	$(CC_LINUX_I386) -DNRV2E -s -o $T.o -c $<
-	ld -s -Map $T.map -o $T.bin l_xe_n2e.o $T.o
+	$(LD_LINUX_I386) -Map $T.map -o $T.bin l_xe_n2e.o $T.o
+	chmod a-x $T.bin
 	objcopy -S -R .comment -R .note $T.bin
 	$(STRIPELF) $T.bin
 	$(BRANDELF) $T.bin
@@ -257,6 +294,11 @@ l_xe_n2e.o: l_linuxe.asm
 # /***********************************************************************
 # // dependencies
 # ************************************************************************/
+
+DEPS_FILES := $(wildcard *.d)
+ifneq ($(strip $(DEPS_FILES)),)
+  include $(DEPS_FILES)
+endif
 
 DEPS1 = header.ash macros.ash version.asy ident.ash ident_n.ash ident_s.ash
 DEPS2 = header.asy macros.asy

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -48,11 +48,11 @@ void show_head(void)
     fg = con_fg(f,FG_GREEN);
     con_fprintf(f,
                 "                     Ultimate Packer for eXecutables\n"
-                "         Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002\n"
+                "   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004\n"
                 "UPX %-12s Markus F.X.J. Oberhumer & Laszlo Molnar %20s\n\n",
-#if defined(__MFX_DOS)
+#if (ACC_OS_DOS16 || ACC_OS_DOS32)
                 V("d"),
-#elif defined(__MFX_WIN32)
+#elif (ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
                 V("w"),
 #elif 0 && defined(__linux__)
                 V("l"),
@@ -62,6 +62,8 @@ void show_head(void)
                 UPX_VERSION_DATE);
     fg = con_fg(f,fg);
 #undef V
+
+    UNUSED(fg);
 }
 
 
@@ -142,17 +144,17 @@ void show_help(int x)
                     "  --overlay=skip      don't compress a file with an overlay\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"Options for dos/com:\n");
+        fg = con_fg(f,fg);
+        con_fprintf(f,
+                    "  --8086              make compressed com work on any 8086\n"
+                    "\n");
+        fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/exe:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --8086              make compressed exe work on any 8086\n"
                     "  --no-reloc          put no relocations in to the exe header\n"
-                    "\n");
-        fg = con_fg(f,FG_YELLOW);
-        con_fprintf(f,"Options for dos/com:\n");
-        fg = con_fg(f,fg);
-        con_fprintf(f,
-                    "  --8086              make compressed com work on any 8086\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/sys:\n");
@@ -209,6 +211,8 @@ void show_help(int x)
                 "\n");
     fg = con_fg(f,fg);
 #endif
+
+    UNUSED(fg);
 }
 
 
@@ -248,6 +252,8 @@ void show_license(void)
         "   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>\n"
     );
     fg = con_fg(f,fg);
+
+    UNUSED(fg);
 }
 
 
@@ -260,8 +266,8 @@ void show_version(int x)
     FILE *f = stdout;
     UNUSED(x);
 
-#if 0 && defined(__GNUC__)
-    fprintf(f,"upx %s (gcc 0x%lx)\n", UPX_VERSION_STRING, __GNUC_VERSION_HEX__);
+#if (0 && ACC_CC_GNUC)
+    fprintf(f,"upx %s (gcc 0x%06lx)\n", UPX_VERSION_STRING, ACC_CC_GNUC);
 #else
     fprintf(f,"upx %s\n", UPX_VERSION_STRING);
 #endif
@@ -271,8 +277,8 @@ void show_version(int x)
 #if defined(WITH_UCL)
     fprintf(f,"UCL data compression library %s\n", ucl_version_string());
 #endif
-    fprintf(f,"Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer\n");
-    fprintf(f,"Copyright (C) 1996-2002 Laszlo Molnar\n");
+    fprintf(f,"Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer\n");
+    fprintf(f,"Copyright (C) 1996-2004 Laszlo Molnar\n");
     fprintf(f,"UPX comes with ABSOLUTELY NO WARRANTY; for details type `%s -L'.\n", progname);
 }
 

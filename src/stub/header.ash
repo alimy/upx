@@ -2,8 +2,8 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2002 Laszlo Molnar
+;  Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) 1996-2004 Laszlo Molnar
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -58,7 +58,7 @@
                 dd      0               ; 24  original file size
                 db      0               ; 28  filter id
                 db      0               ; 29  filter cto
-                db      0               ;  unsused
+                db      0               ;  unused
                 db      45              ; 31  header checksum
  %endif
 

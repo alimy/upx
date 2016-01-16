@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -337,7 +337,7 @@ void PackExe::pack(OutputFile *fo)
     oh.ss = packedsize/16+destpara;
     if (ih.ss*16 + ih.sp < 0x100000 && ih.ss > oh.ss && ih.sp > 0x200)
         oh.ss = ih.ss;
-    oh.sp = ih.sp > 0x200 ? ih.sp : 0x200;
+    oh.sp = ih.sp > 0x200 ? (unsigned) ih.sp : 0x200;
     if (oh.ss*16u + 0x50 < ih.ss*16u + ih.sp
         && oh.ss*16u + 0x200 > ih.ss*16u + ih.sp)
         oh.ss += 0x20;
@@ -443,12 +443,11 @@ void PackExe::pack(OutputFile *fo)
     oh.headsize16 = 2;
     oh.ip = 0;
 
-    ic = ih.min*16+imagesize;
+    ic = ih.min*16 + imagesize;
     if (ic < oh.ss*16u + oh.sp)
         ic = oh.ss*16u + oh.sp;
-
     oh.min = (ic - (packedsize + lsize)) / 16;
-    ic = ((unsigned) oh.min) + (ih.max - ih.min);
+    ic = oh.min + (ih.max - ih.min);
     oh.max = ic < 0xffff && ih.max != 0xffff ? ic : 0xffff;
 
     if (ih.min != oh.min)
@@ -650,15 +649,15 @@ void PackExe::unpack(OutputFile *fo)
     oh.ss = ih.ss;
 
     if (flag & MAXMEM)
-        imagesize -= 2, oh.max = get_le16(ibuf+imagesize);
+        { imagesize -= 2; oh.max = get_le16(ibuf+imagesize); }
     if (flag & MINMEM)
-        imagesize -= 2, oh.min = get_le16(ibuf+imagesize);
+        { imagesize -= 2; oh.min = get_le16(ibuf+imagesize); }
     if (flag & SP)
-        imagesize -= 2, oh.sp = get_le16(ibuf+imagesize);
+        { imagesize -= 2; oh.sp = get_le16(ibuf+imagesize); }
     if (flag & SS)
-        imagesize -= 2, oh.ss = get_le16(ibuf+imagesize);
+        { imagesize -= 2; oh.ss = get_le16(ibuf+imagesize); }
 
-    unsigned ip = (flag & USEJUMP) ? get_le32(ibuf+imagesize-4) : ih.firstreloc;
+    unsigned ip = (flag & USEJUMP) ? get_le32(ibuf+imagesize-4) : (unsigned) ih.firstreloc;
     oh.ip = ip & 0xffff;
     oh.cs = ip >> 16;
 
