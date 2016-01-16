@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,13 +21,12 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
-#include "version.h"
 #include "mygetopt.h"
 #include "file.h"
 
@@ -177,6 +177,14 @@ static void e_optarg(const char *n)
 {
     fflush(con_term);
     fprintf(stderr,"%s: invalid argument in option `%s'\n", argv0, n);
+    e_exit(EXIT_USAGE);
+}
+
+
+static void e_optval(const char *n)
+{
+    fflush(con_term);
+    fprintf(stderr,"%s: invalid value for option `%s'\n", argv0, n);
     e_exit(EXIT_USAGE);
 }
 
@@ -477,7 +485,7 @@ static int do_option(int optc, const char *arg)
         if (!set_method(-1, optc - '0'))
             e_method(opt->method, optc);
         break;
-    case 900:
+    case 900:                               // --best
         if (!set_method(-1, 10))
             e_method(opt->method, 10);
         break;
@@ -499,16 +507,16 @@ static int do_option(int optc, const char *arg)
         opt->no_env = true;
         break;
     // compression settings
-    case 520:
+    case 520:                               // --small
         if (opt->small < 0)
             opt->small = 0;
         opt->small++;
         break;
-    case 521:
+    case 521:                               // --filter=
         getoptvar(&opt->filter, 0, 255);
         opt->all_filters = false;
         break;
-    case 523:
+    case 523:                               // --all-filters
         opt->all_filters = true;
         opt->filter = -1;
         break;
@@ -532,7 +540,8 @@ static int do_option(int optc, const char *arg)
         getoptvar(&opt->crp.max_match, 16u, ~0u);
         break;
     case 537:
-        getoptvar(&opt->crp.m_size, 1024u, 512*1024u);
+        if (getoptvar(&opt->crp.m_size, 10000u, (unsigned)999999u) != 0)
+            e_optval("--crp-ms=");
         break;
     // backup
     case 'k':
@@ -644,9 +653,9 @@ static int get_options(int argc, char **argv)
 static const struct mfx_option longopts[] =
 {
     // commands
-    {"best",                0, 0, 900},     // compress best
+    {"best",             0x10, 0, 900},     // compress best
     {"decompress",          0, 0, 'd'},     // decompress
-    {"fast",                0, 0, '1'},     // compress faster
+    {"fast",             0x10, 0, '1'},     // compress faster
     {"fileinfo",         0x10, 0, 902},     // display info about file
     {"help",                0, 0, 'h'+256}, // give help
     {"license",             0, 0, 'L'},     // display software license
@@ -696,11 +705,7 @@ static const struct mfx_option longopts[] =
     {"color",               0, 0, 514},
 
     // compression method
-    {"2b",               0x10, 0, 702},     // --2b
-    {"n2b",              0x10, 0, 702},     // --n2b
     {"nrv2b",            0x10, 0, 702},     // --nrv2b
-    {"2d",               0x10, 0, 704},     // --2d
-    {"n2d",              0x10, 0, 704},     // --n2d
     {"nrv2d",            0x10, 0, 704},     // --nrv2d
     // compression settings
 //    {"all-filters",      0x10, 0, 523},
@@ -734,7 +739,7 @@ static const struct mfx_option longopts[] =
     {"compress-resources",  2, 0, 632},
     {"strip-relocs",        2, 0, 633},
 
-    { 0, 0, 0, 0 }
+    { NULL, 0, NULL, 0 }
 };
 
     int optc, longind;
@@ -762,8 +767,8 @@ static void get_envoptions(int argc, char **argv)
 static const struct mfx_option longopts[] =
 {
     // commands
-    {"best",                0, 0, 900},     // compress best
-    {"fast",                0, 0, '1'},     // compress faster
+    {"best",             0x10, 0, 900},     // compress best
+    {"fast",             0x10, 0, '1'},     // compress faster
 
     // options
     {"info",                0, 0, 'i'},     // info mode
@@ -801,7 +806,7 @@ static const struct mfx_option longopts[] =
     {"compress-resources",  2, 0, 632},
     {"strip-relocs",        2, 0, 633},
 
-    { 0, 0, 0, 0 }
+    { NULL, 0, NULL, 0 }
 };
 
     char *env, *p;
@@ -889,14 +894,22 @@ static const struct mfx_option longopts[] =
 static void first_options(int argc, char **argv)
 {
     int i;
+    int n = argc;
 
-    for (i = 1; i < argc; i++)
+    for (i = 1; i < n; i++)
+    {
+        if (strcmp(argv[i],"--") == 0)
+        {
+            n = i;
+            break;
+        }
         if (strcmp(argv[i],"--version") == 0)
             do_option('V'+256, argv[i]);
-    for (i = 1; i < argc; i++)
+    }
+    for (i = 1; i < n; i++)
         if (strcmp(argv[i],"--help") == 0)
             do_option('h'+256, argv[i]);
-    for (i = 1; i < argc; i++)
+    for (i = 1; i < n; i++)
         if (strcmp(argv[i],"--no-env") == 0)
             do_option(519, argv[i]);
 }
@@ -914,6 +927,10 @@ void upx_sanity_check(void)
     COMPILE_TIME_ASSERT(sizeof(long) >= 4);
     COMPILE_TIME_ASSERT(sizeof(void *) >= 4);
     COMPILE_TIME_ASSERT(sizeof(long) >= sizeof(void *));
+
+    COMPILE_TIME_ASSERT(sizeof(upx_int64l) >= 8);
+    COMPILE_TIME_ASSERT(sizeof(upx_int64l) >= sizeof(long));
+    COMPILE_TIME_ASSERT(sizeof(upx_int64l) == sizeof(upx_uint64l));
 
     COMPILE_TIME_ASSERT(sizeof(off_t) >= sizeof(long));
     COMPILE_TIME_ASSERT(((off_t) -1) < 0);
@@ -934,6 +951,7 @@ void upx_sanity_check(void)
     COMPILE_TIME_ASSERT(__alignof__(LE32) == 1);
 #endif
 
+#if !defined(__WATCOMC__)
     struct align_assertion_1a_t
     {
         struct foo_t {
@@ -975,10 +993,29 @@ void upx_sanity_check(void)
     COMPILE_TIME_ASSERT(sizeof(align_assertion_2a_t) == sizeof(align_assertion_2b_t));
     COMPILE_TIME_ASSERT(sizeof(align_assertion_1a_t) == 3*9);
     COMPILE_TIME_ASSERT(sizeof(align_assertion_2a_t) == 3*17);
+#endif
 
     COMPILE_TIME_ASSERT(sizeof(UPX_VERSION_STRING4) == 4 + 1);
     assert(strlen(UPX_VERSION_STRING4) == 4);
     assert(memcmp(UPX_VERSION_STRING4, UPX_VERSION_STRING, 4) == 0);
+
+    const unsigned char dd[4] = { 0xff, 0xfe, 0xfd, 0xfc };
+    assert(get_be16(dd) == 0xfffe);
+    assert(get_be16_signed(dd) == -2);
+    assert(get_be24(dd) == 0xfffefd);
+    assert(get_be24_signed(dd) == -259);
+    assert(get_be32(dd) == 0xfffefdfc);
+    assert(get_be32_signed(dd) == -66052);
+    assert(get_le16(dd) == 0xfeff);
+    assert(get_le16_signed(dd) == -257);
+    assert(get_le24(dd) == 0xfdfeff);
+    assert(get_le24_signed(dd) == -131329);
+    assert(get_le32(dd) == 0xfcfdfeff);
+    assert(get_le32_signed(dd) == -50462977);
+    assert(find_be16(dd, sizeof(dd), 0xfffe) == 0);
+    assert(find_le16(dd, sizeof(dd), 0xfeff) == 0);
+    assert(find_be32(dd, sizeof(dd), 0xfffefdfc) == 0);
+    assert(find_le32(dd, sizeof(dd), 0xfcfdfeff) == 0);
 }
 
 
@@ -992,7 +1029,7 @@ int main(int argc, char *argv[])
 {
     int i;
     static char default_argv0[] = "upx";
-    int cmdline_cmd = CMD_NONE;
+//    int cmdline_cmd = CMD_NONE;
 
 #if 0 && defined(__DJGPP__)
     // LFN=n may cause problems with 2.03's _rename and mkdir under WinME
@@ -1010,10 +1047,6 @@ int main(int argc, char *argv[])
 
     upx_sanity_check();
     init_options(opt);
-
-#if defined(WITH_MSS)
-    MSS_DISABLE_LOG_OUTPUT;
-#endif
 
     if (!argv[0] || !argv[0][0])
         argv[0] = default_argv0;
@@ -1054,7 +1087,7 @@ int main(int argc, char *argv[])
     }
 #endif
 #if defined(WITH_NRV)
-    if (nrv_init() != NRV_E_OK)
+    if (nrv_init() != NRV_E_OK || NRV_VERSION != nrv_version())
     {
         show_head();
         fprintf(stderr,"nrv_init() failed - check your NRV installation !\n");
@@ -1078,7 +1111,7 @@ int main(int argc, char *argv[])
     assert(i <= argc);
 
     set_term(stdout);
-    cmdline_cmd = opt->cmd;
+//    cmdline_cmd = opt->cmd;
     switch (opt->cmd)
     {
     case CMD_NONE:

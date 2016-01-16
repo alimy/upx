@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,13 +21,14 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
 #include "file.h"
+#include "mem.h"
 
 
 /*************************************************************************
@@ -65,7 +67,7 @@ void File::unlink(const char *name)
 **************************************************************************/
 
 FileBase::FileBase() :
-    _fd(-1), _flags(0), _shflags(0), _mode(0), _name(0)
+    _fd(-1), _flags(0), _shflags(0), _mode(0), _name(NULL)
 {
     memset(&st,0,sizeof(st));
 }
@@ -77,14 +79,17 @@ FileBase::~FileBase()
     if (isOpen())
         fprintf(stderr,"%s: %s\n", _name, __PRETTY_FUNCTION__);
 #endif
-    close();
+
+    // FIXME: we should use close() during exception unwinding but
+    //        closex() otherwise
+    closex();
 }
 
 
 void FileBase::sopen()
 {
     if (_shflags < 0)
-        _fd = ::open(_name,_flags,_mode);
+        _fd = ::open(_name, _flags, _mode);
     else
     {
 #if defined(__DJGPP__)
@@ -92,7 +97,7 @@ void FileBase::sopen()
 #elif defined(__MINT__)
         _fd = ::open(_name,_flags | (_shflags & O_SHMODE), _mode);
 #elif defined(SH_DENYRW)
-        _fd = ::sopen(_name,_flags,_shflags,_mode);
+        _fd = ::sopen(_name, _flags, _shflags, _mode);
 #else
         assert(0);
 #endif
@@ -100,7 +105,7 @@ void FileBase::sopen()
 }
 
 
-bool FileBase::close(int)
+bool FileBase::close()
 {
     bool ok = true;
     if (isOpen() && _fd != STDIN_FILENO && _fd != STDOUT_FILENO && _fd != STDERR_FILENO)
@@ -109,19 +114,19 @@ bool FileBase::close(int)
     _fd = -1;
     _flags = 0;
     _mode = 0;
-    _name = 0;
+    _name = NULL;
     return ok;
 }
 
 
-void FileBase::close()
+void FileBase::closex()
 {
-    if (!close(0))
+    if (!close())
         throwIOException("close failed",errno);
 }
 
 
-int FileBase::read(void * buf, int len)
+int FileBase::read(void *buf, int len)
 {
     int l;
     if (!isOpen() || len < 0)
@@ -131,9 +136,9 @@ int FileBase::read(void * buf, int len)
     for (;;)
     {
 #if 1 && defined(__DJGPP__)
-        l = ::_read(_fd,buf,len);
+        l = ::_read(_fd, buf, len);
 #else
-        l = ::read(_fd,buf,len);
+        l = ::read(_fd, buf, len);
 #endif
         if (l < 0)
         {
@@ -149,16 +154,16 @@ int FileBase::read(void * buf, int len)
 }
 
 
-int FileBase::readx(void * buf, int len)
+int FileBase::readx(void *buf, int len)
 {
-    int l = this->read(buf,len);
+    int l = this->read(buf, len);
     if (l != len)
-        throw EOFException();
+        throwEOFException();
     return l;
 }
 
 
-void FileBase::write(const void * buf, int len)
+void FileBase::write(const void *buf, int len)
 {
     int l;
     if (!isOpen() || len < 0)
@@ -186,7 +191,11 @@ void FileBase::write(const void * buf, int len)
 void FileBase::seek(off_t off, int whence)
 {
     if (!isOpen())
-        throwIOException("bad seek");
+        throwIOException("bad seek 1");
+    if (whence == SEEK_SET && off < 0)
+        throwIOException("bad seek 2");
+    if (whence == SEEK_END && off > 0)
+        throwIOException("bad seek 3");
     if (::lseek(_fd,off,whence) < 0)
         throwIOException("seek error",errno);
 }
@@ -196,7 +205,7 @@ off_t FileBase::tell() const
 {
     if (!isOpen())
         throwIOException("bad tell");
-    off_t l = ::lseek(_fd,0,SEEK_CUR);
+    off_t l = ::lseek(_fd, 0, SEEK_CUR);
     if (l < 0)
         throwIOException("tell error",errno);
     return l;
@@ -228,24 +237,47 @@ void InputFile::sopen(const char *name, int flags, int shflags)
     if (!isOpen())
     {
         if (errno == ENOENT)
-            throw FileNotFoundException(_name,errno);
+            throw FileNotFoundException(_name, errno);
         else if (errno == EEXIST)
-            throw FileAlreadyExistsException(_name,errno);
+            throw FileAlreadyExistsException(_name, errno);
         else
-            throwIOException(_name,errno);
+            throwIOException(_name, errno);
     }
 }
 
 
-int InputFile::read(void * buf, int len)
+int InputFile::read(void *buf, int len)
 {
-    return super::read(buf,len);
+    return super::read(buf, len);
+}
+
+int InputFile::readx(void *buf, int len)
+{
+    return super::readx(buf, len);
 }
 
 
-int InputFile::readx(void * buf, int len)
+int InputFile::read(MemBuffer *buf, int len)
 {
-    return super::readx(buf,len);
+    assert((unsigned)len <= buf->getSize());
+    return super::read(buf->getVoidPtr(), len);
+}
+
+int InputFile::readx(MemBuffer *buf, int len)
+{
+    assert((unsigned)len <= buf->getSize());
+    return super::readx(buf->getVoidPtr(), len);
+}
+
+
+int InputFile::read(MemBuffer &buf, int len)
+{
+    return read(&buf, len);
+}
+
+int InputFile::readx(MemBuffer &buf, int len)
+{
+    return readx(&buf, len);
 }
 
 
@@ -287,7 +319,7 @@ void OutputFile::sopen(const char *name, int flags, int shflags, int mode)
     if (!isOpen())
     {
 #if 0
-        // don't throw FileNotFound here - confusing
+        // don't throw FileNotFound here -- this is confusing
         if (errno == ENOENT)
             throw FileNotFoundException(_name,errno);
         else
@@ -300,7 +332,7 @@ void OutputFile::sopen(const char *name, int flags, int shflags, int mode)
 }
 
 
-bool OutputFile::openStdout(bool binmode, bool force)
+bool OutputFile::openStdout(int flags, bool force)
 {
     close();
     if (!force)
@@ -310,11 +342,12 @@ bool OutputFile::openStdout(bool binmode, bool force)
     }
     _fd = STDOUT_FILENO;
     _name = "<stdout>";
-    _flags = 0;
+    _flags = flags;
     _shflags = -1;
     _mode = 0;
-    if (binmode)
+    if (flags != 0)
     {
+        assert(flags == O_BINARY);
 #if defined(__MINT__)
         __set_binmode(stdout, 1);
 #elif defined(HAVE_SETMODE) && defined(USE_SETMODE)
@@ -329,9 +362,9 @@ bool OutputFile::openStdout(bool binmode, bool force)
 }
 
 
-void OutputFile::write(const void * buf, int len)
+void OutputFile::write(const void *buf, int len)
 {
-    super::write(buf,len);
+    super::write(buf, len);
     bytes_written += len;
 }
 
@@ -344,7 +377,7 @@ void OutputFile::dump(const char *name, const void *buf, int len, int flags)
     OutputFile f;
     f.open(name, flags, 0666);
     f.write(buf, len);
-    f.close();
+    f.closex();
 }
 
 
@@ -352,13 +385,15 @@ void OutputFile::dump(const char *name, const void *buf, int len, int flags)
 //
 **************************************************************************/
 
+#if 0
+
 MemoryOutputFile::MemoryOutputFile() :
     b(NULL), b_size(0), b_pos(0), bytes_written(0)
 {
 }
 
 
-void MemoryOutputFile::write(const void * buf, int len)
+void MemoryOutputFile::write(const void *buf, int len)
 {
     if (!isOpen() || len < 0)
         throwIOException("bad write");
@@ -370,6 +405,9 @@ void MemoryOutputFile::write(const void * buf, int len)
     b_pos += len;
     bytes_written += len;
 }
+
+
+#endif /* if 0 */
 
 
 /*

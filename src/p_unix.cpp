@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -64,7 +65,7 @@ bool PackUnix::canPack()
     unsigned char buf[256];
     fi->seek(-(long)sizeof(buf), SEEK_END);
     fi->readx(buf,sizeof(buf));
-    if (find_le32(buf,sizeof(buf),UPX_MAGIC_LE32))  // note: always le32
+    if (pfind_le32(buf,sizeof(buf),UPX_MAGIC_LE32))  // note: always le32
         throwAlreadyPacked();
 
     return true;
@@ -132,8 +133,11 @@ void PackUnix::pack(OutputFile *fo)
         if (l == 0)
             break;
 
-        // Note: compression for a block can fail if the
-        //       file is e.g. blocksize + 1 bytes long
+        // Note:
+        //   Compression of a single block can fail for a number of
+        //   reasons, e.g. if the  file is blocksize + 1 bytes long.
+        //   We just continue and check the final compression ratio.
+        const unsigned saved_c_adler = ph.c_adler;
 
         // compress
         ph.u_len = l;
@@ -142,14 +146,17 @@ void PackUnix::pack(OutputFile *fo)
         if (ph.c_len < ph.u_len)
         {
             if (!testOverlappingDecompression(obuf, ibuf, OVERHEAD))
-                throwNotCompressible();
+            {
+                // not in-place compressible
+                ph.c_len = ph.u_len;
+            }
         }
-        else
+        if (ph.c_len >= ph.u_len)
         {
             // block is not compressible
             ph.c_len = ph.u_len;
-            // must manually update checksum of compressed data
-            ph.c_adler = upx_adler32(ibuf, ph.u_len, ph.c_adler);
+            // manually update checksum of compressed data
+            ph.c_adler = upx_adler32(ibuf, ph.u_len, saved_c_adler);
         }
 
         // write block sizes
@@ -320,6 +327,8 @@ static const
 #include "stub/l_lx_n2b.h"
 static const
 #include "stub/l_lx_n2d.h"
+static const
+#include "stub/l_lx_n2e.h"
 
 
 int PackLinuxI386::getCompressionMethod() const
@@ -328,6 +337,8 @@ int PackLinuxI386::getCompressionMethod() const
         return M_NRV2B_LE32;
     if (M_IS_NRV2D(opt->method))
         return M_NRV2D_LE32;
+    if (M_IS_NRV2E(opt->method))
+        return M_NRV2E_LE32;
     return opt->level > 1 && file_size >= 512*1024 ? M_NRV2D_LE32 : M_NRV2B_LE32;
 }
 
@@ -338,6 +349,8 @@ const upx_byte *PackLinuxI386::getLoader() const
         return linux_i386_nrv2b_loader;
     if (M_IS_NRV2D(opt->method))
         return linux_i386_nrv2d_loader;
+    if (M_IS_NRV2E(opt->method))
+        return linux_i386_nrv2e_loader;
     return NULL;
 }
 
@@ -347,6 +360,8 @@ int PackLinuxI386::getLoaderSize() const
         return sizeof(linux_i386_nrv2b_loader);
     if (M_IS_NRV2D(opt->method))
         return sizeof(linux_i386_nrv2d_loader);
+    if (M_IS_NRV2E(opt->method))
+        return sizeof(linux_i386_nrv2e_loader);
     return 0;
 }
 

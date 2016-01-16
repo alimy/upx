@@ -2,8 +2,34 @@
 User visible changes for UPX
 ==================================================================
 
+Changes in 1.24 (07 Nov 2002)
+  * INFO: http://upx.sourceforge.net is the permanent UPX home page
+  * djgpp2/coff: stricter check of the COFF header to work around a
+    problem with certain binutils versions
+
+Changes in 1.23 (05 Sep 2002)
+  * atari/tos: fixed an unpacking problem where a buffer was too
+    small (introduced in 1.22)
+  * linux/386: don't give up too early if a single block turns out
+    to be incompressible
+  * documentation: added some quick tips how to achieve the best
+    compression ratio for the final release of your application
+  * fixed a rare situation where the exit code was not set correctly
+
+Changes in 1.22 (27 Jun 2002)
+  * atari/tos: the stub now flushes the CPU cache to avoid
+    problems on 68030+ machines
+  * source code: additional compiler support for Borland C++ 5.5.1,
+    Digital Mars C++ 8.28 and Watcom C++ 11.0c
+
+Changes in 1.21 (01 Jun 2002)
+  * New option `--crp-ms=' for slightly better compression at the cost
+    of higher memory requirements during compression.
+    Try `upx --best --crp-ms=100000'. See the docs for more info.
+  * source code: portability fixes
+  * source code: compile fixes for g++ 3.0 and g++ 3.1
+
 Changes in 1.20 (23 May 2001)
-  * INFO: http://upx.sourceforge.net is the new permanent UPX home page
   * slightly faster compression
   * work around a gcc problem in the latest djgpp2 distribution
   * watcom/le: fixed detection of already compressed files
@@ -13,10 +39,10 @@ Changes in 1.20 (23 May 2001)
            our unstable development releases 1.1x and 1.9x]
 
 Changes in 1.08 (30 Apr 2001)
-  * http://upx.sourceforge.net now is the new permanent UPX home page
+  * INFO: http://upx.sourceforge.net now is the new permanent UPX home page
   * new native port to atari/tos
-  * portability fixes - UPX now builds cleanly under m68k CPUs
   * win32/pe: shortened the identstring
+  * source code: portability fixes - UPX now builds cleanly under m68k CPUs
 
 Changes in 1.07 (20 Feb 2001)
   * win32/pe: corrected the TLS callback check

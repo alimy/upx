@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -207,8 +208,8 @@ void LeFile::readImage()
 
 void LeFile::writeImage()
 {
-    if (fof && oimage)
-        fof->write(oimage,soimage);
+    if (fof && oimage != NULL)
+        fof->write(oimage, soimage);
 }
 
 
@@ -315,8 +316,8 @@ void LeFile::countFixups(unsigned *counts) const
     const unsigned o = objects;
     memset(counts,0,sizeof(unsigned)*(o+2));
     // counts[0..objects-1] - # of 32-bit offset relocations in for that objects
-    // counts[object]       - # of selector fixups
-    // counts[object+1]     - # of self-relative fixups
+    // counts[objects]      - # of selector fixups
+    // counts[objects+1]    - # of self-relative fixups
 
     const upx_byte *fix = ifixups;
     const unsigned sfixups = get_le32(ifpage_table+pages);

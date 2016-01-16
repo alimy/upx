@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,15 +21,15 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
 #include "file.h"
-#include "screen.h"
 #include "ui.h"
+#include "screen.h"
 #include "packer.h"
 
 
@@ -46,7 +47,7 @@ enum {
 };
 
 
-struct UiPacker::State
+struct UiPacker__State
 {
     int mode;
 
@@ -115,7 +116,7 @@ static void init_global_constants(void)
     done = true;
 
 #if 1 && defined(__DJGPP__)
-    /* check for Windows NT/2000 */
+    /* check for Windows NT/2000/XP */
     if (_get_dos_version(1) == 0x0532)
         return;
 #endif
@@ -142,17 +143,29 @@ static const char *mkline(unsigned long fu_len, unsigned long fc_len,
                           bool decompress=false)
 {
     static char buf[2000];
-    char r[7+1];
+    char r[7+1] = "";
+    char fn[13+1];
     const char *f;
 
+    // Large ratios can happen because of overlays that are
+    // appended after a program is packed.
     unsigned ratio = get_ratio(fu_len, fc_len);
-    upx_snprintf(r,sizeof(r),"%3d.%02d%%", ratio / 10000, (ratio % 10000) / 100);
+#if 1
+    if (ratio >= 1000*1000)
+        strcpy(r, "overlay");
+#else
+    if (ratio >= 10*1000*1000)      // >= "1000%"
+        strcpy(r, "999.99%");
+#endif
+    else
+        upx_snprintf(r, sizeof(r), "%3d.%02d%%", ratio / 10000, (ratio % 10000) / 100);
     if (decompress)
         f = "%10ld <-%10ld  %7s  %13s  %s";
     else
         f = "%10ld ->%10ld  %7s  %13s  %s";
-    upx_snprintf(buf,sizeof(buf),f,
-                 fu_len, fc_len, r, center_string(format_name,13), filename);
+    center_string(fn, sizeof(fn), format_name);
+    assert(strlen(fn) == 13);
+    upx_snprintf(buf, sizeof(buf), f, fu_len, fc_len, r, fn, filename);
     UNUSED(u_len); UNUSED(c_len);
     return buf;
 }
@@ -169,12 +182,12 @@ UiPacker::UiPacker(const Packer *p_) :
 
     clear_cb();
 
-    s = new State;
+    s = new UiPacker__State;
     memset(s,0,sizeof(*s));
     s->msg_buf[0] = '\r';
 
 #if defined(UI_USE_SCREEN)
-    // ugly hack
+    // FIXME - ugly hack
     s->screen = sobject_get_screen();
 #endif
 
@@ -184,7 +197,7 @@ UiPacker::UiPacker(const Packer *p_) :
         s->mode = M_INFO;
     else if (opt->verbose == 1 || opt->no_progress)
         s->mode = M_MSG;
-    else if (!s->screen)
+    else if (s->screen == NULL)
         s->mode = M_CB_TERM;
     else
         s->mode = M_CB_SCREEN;
@@ -201,6 +214,18 @@ UiPacker::~UiPacker()
 /*************************************************************************
 // start callback
 **************************************************************************/
+
+void UiPacker::printInfo(int nl)
+{
+#if 1
+    char method_name[32+1];
+    set_method_name(method_name, sizeof(method_name), p->ph.method, p->ph.level);
+    con_fprintf(stdout, "Compressing %s [%s, %s]%s", p->fi->getName(), p->getName(), method_name, nl ? "\n" : "");
+#else
+    con_fprintf(stdout, "Compressing %s [%s]%s", p->fi->getName(), p->getName(), nl ? "\n" : "");
+#endif
+}
+
 
 void UiPacker::startCallback(unsigned u_len, unsigned step,
                              int pass, int total_passes)
@@ -229,7 +254,7 @@ void UiPacker::startCallback(unsigned u_len, unsigned step,
     {
         if (pass <= 1)
         {
-            con_fprintf(stdout,"Compressing %s [%s]",p->fi->getName(),p->getName());
+            printInfo(0);
             fflush(stdout);
             printSetNl(2);
         }
@@ -256,13 +281,15 @@ void UiPacker::startCallback(unsigned u_len, unsigned step,
     // set pass
     if (total_passes > 1)
     {
+        int buflen, l;
         do {
             s->pass_digits++;
             total_passes /= 10;
         } while (total_passes > 0);
-        int l = sprintf(&s->msg_buf[s->bar_pos], "%*d/%*d  ",
-                        s->pass_digits, s->pass,
-                        s->pass_digits, s->total_passes);
+        buflen = sizeof(s->msg_buf) - s->bar_pos;
+        l = upx_snprintf(&s->msg_buf[s->bar_pos], buflen, "%*d/%*d  ",
+                         s->pass_digits, s->pass,
+                         s->pass_digits, s->total_passes);
         if (l > 0 && s->bar_len - l > 10)
         {
             s->bar_len -= l;
@@ -273,18 +300,18 @@ void UiPacker::startCallback(unsigned u_len, unsigned step,
 #if defined(UI_USE_SCREEN)
     if (s->mode == M_CB_SCREEN)
     {
-        s->screen->getCursor(s->screen,&s->s_cx,&s->s_cy);
-        s->s_fg = s->screen->getFg(s->screen);
-        s->s_bg = s->screen->getBg(s->screen);
-
-        // FIXME: this message can be longer than one line.
-        //        must adapt endCallback() for this case.
-        con_fprintf(stdout,"Compressing %s [%s]\n",p->fi->getName(),p->getName());
-        s->screen->getCursor(s->screen,&s->b_cx,&s->b_cy);
-        if (s->b_cy == s->s_cy)
-            s->scroll_up++;
-        if (s->screen->hideCursor)
-            s->cursor_shape = s->screen->hideCursor(s->screen);
+        if (pass <= 1)
+        {
+            if (s->screen->hideCursor)
+                s->cursor_shape = s->screen->hideCursor(s->screen);
+            s->s_fg = s->screen->getFg(s->screen);
+            s->s_bg = s->screen->getBg(s->screen);
+            s->screen->getCursor(s->screen,&s->s_cx,&s->s_cy);
+            s->scroll_up = s->screen->getScrollCounter(s->screen);
+            printInfo(1);
+            s->screen->getCursor(s->screen,&s->b_cx,&s->b_cy);
+            s->scroll_up = s->screen->getScrollCounter(s->screen) - s->scroll_up;
+        }
     }
 #endif /* UI_USE_SCREEN */
 }
@@ -329,23 +356,26 @@ void UiPacker::endCallback()
 #if defined(UI_USE_SCREEN)
     if (s->mode == M_CB_SCREEN)
     {
-#if 0
-        if (s->scroll_up)
-            s->screen->scrollDown(screen,s->scroll_up);
+        if (done)
+        {
+            int cx, cy, sy;
+            assert(s->s_cx == 0 && s->b_cx == 0);
+            s->screen->getCursor(s->screen, &cx, &cy);
+            sy = UPX_MAX(0, s->s_cy - s->scroll_up);
+            while (cy >= sy)
+                s->screen->clearLine(s->screen, cy--);
+            s->screen->setCursor(s->screen, s->s_cx, sy);
+            s->screen->setFg(s->screen,s->s_fg);
+            s->screen->setBg(s->screen,s->s_bg);
+            if (s->cursor_shape > 0)
+                s->screen->setCursorShape(s->screen,s->cursor_shape);
+        }
         else
-            s->screen->clearLine(s->screen,s->s_cy+1);
-        s->screen->clearLine(s->screen,s->s_cy);
-        s->screen->setCursor(s->screen,s->s_cx,s->s_cy);
-#else
-        assert(s->s_cx == 0 && s->b_cx == 0);
-        s->screen->clearLine(s->screen,s->b_cy-1);
-        s->screen->clearLine(s->screen,s->b_cy);
-        s->screen->setCursor(s->screen,s->b_cx,s->b_cy-1);
-#endif
-        s->screen->setFg(s->screen,s->s_fg);
-        s->screen->setBg(s->screen,s->s_bg);
-        if (s->cursor_shape > 0)
-            s->screen->setCursorShape(s->screen,s->cursor_shape);
+        {
+            // not needed:
+//            s->screen->clearLine(s->screen, s->b_cy);
+//            s->screen->setCursor(s->screen, s->b_cx, s->b_cy);
+        }
     }
 #endif /* UI_USE_SCREEN */
 
@@ -361,14 +391,14 @@ void UiPacker::endCallback()
 // the callback
 **************************************************************************/
 
-void __UPX_ENTRY UiPacker::callback(upx_uint isize, upx_uint osize, int state, void * user)
+void __UPX_ENTRY UiPacker::callback(upx_uint isize, upx_uint osize, int state, void *user)
 {
-    //printf("%6d %6d %d\n", is, os, state);
+    //printf("%6d %6d %d\n", isize, osize, state);
     if (state != -1 && state != 3) return;
     if (user)
     {
-        UiPacker *uip = reinterpret_cast<UiPacker *>(user);
-        uip->doCallback(isize,osize);
+        UiPacker *uip = (UiPacker *) user;
+        uip->doCallback(isize, osize);
     }
 }
 
@@ -422,9 +452,10 @@ void UiPacker::doCallback(unsigned isize, unsigned osize)
     if (osize > 0)
         ratio = get_ratio(isize, osize);
 
-    sprintf(m,"  %3d.%1d%%  %c ",
-            ratio / 10000, (ratio % 10000) / 1000,
-            spinner[s->spin_counter & 3]);
+    int buflen = &s->msg_buf[sizeof(s->msg_buf)] - m;
+    upx_snprintf(m, buflen, "  %3d.%1d%%  %c ",
+                 ratio / 10000, (ratio % 10000) / 1000,
+                 spinner[s->spin_counter & 3]);
     assert((int)strlen(s->msg_buf) < 1 + 80);
 
     s->pos = pos;
@@ -518,6 +549,9 @@ void UiPacker::uiUnpackEnd(const OutputFile *fo)
 {
     uiUpdate(-1, fo->getBytesWritten());
 
+    if (s->mode == M_QUIET)
+        return;
+
     const char *name = p->fi->getName();
     if (opt->output_name)
         name = opt->output_name;
@@ -572,8 +606,9 @@ void UiPacker::uiListTotal(bool decompress)
     if (opt->verbose >= 1 && total_files >= 2)
     {
         char name[32];
-        upx_snprintf(name,sizeof(name),"[ %ld file%s ]", total_files_done, total_files_done == 1 ? "" : "s");
-        con_fprintf(stdout,"%s%s\n",
+        upx_snprintf(name, sizeof(name), "[ %ld file%s ]",
+                     total_files_done, total_files_done == 1 ? "" : "s");
+        con_fprintf(stdout, "%s%s\n",
                     header_line2,
                     mkline(total_fu_len, total_fc_len,
                            total_u_len, total_c_len,

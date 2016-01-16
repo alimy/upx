@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 #include "conf.h"
@@ -40,12 +41,20 @@ static const
 //
 **************************************************************************/
 
+PackTmt::PackTmt(InputFile *f) : super(f)
+{
+    COMPILE_TIME_ASSERT(sizeof(tmt_header_t) == 44);
+}
+
+
 int PackTmt::getCompressionMethod() const
 {
     if (M_IS_NRV2B(opt->method))
         return M_NRV2B_LE32;
     if (M_IS_NRV2D(opt->method))
         return M_NRV2D_LE32;
+    if (M_IS_NRV2E(opt->method))
+        return M_NRV2E_LE32;
     return opt->level > 1 && file_size >= 512*1024 ? M_NRV2D_LE32 : M_NRV2B_LE32;
 }
 
@@ -149,7 +158,7 @@ void PackTmt::pack(OutputFile *fo)
     fi->readx(wrkmem+4,rsize);
     const unsigned overlay = file_size - fi->tell();
 
-    if (find_le32(ibuf,128,get_le32("UPX ")))
+    if (pfind_le32(ibuf,128,get_le32("UPX ")))
         throwAlreadyPacked();
     if (rsize == 0)
         throwCantPack("file is already compressed with another packer");
@@ -230,7 +239,7 @@ void PackTmt::pack(OutputFile *fo)
                    ft.lastcall - ft.calls * 4);
     }
     unsigned jmp_pos;
-    jmp_pos = find_le32(loader,e_len,get_le32("JMPD")) - loader;
+    jmp_pos = pfind_le32(loader,e_len,get_le32("JMPD")) - loader;
     patch_le32(loader,e_len,"JMPD",ph.u_len+overlapoh-jmp_pos-4);
 
     patch_le32(loader,e_len,"ECX0",ph.c_len+d_len);

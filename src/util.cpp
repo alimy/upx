@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -62,94 +63,145 @@ int le32_compare(const void *e1, const void *e2)
 }
 
 
+int be16_compare_signed(const void *e1, const void *e2)
+{
+    const int d1 = get_be16_signed(e1);
+    const int d2 = get_be16_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int be32_compare_signed(const void *e1, const void *e2)
+{
+    const int d1 = get_be32_signed(e1);
+    const int d2 = get_be32_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int le16_compare_signed(const void *e1, const void *e2)
+{
+    const int d1 = get_le16_signed(e1);
+    const int d2 = get_le16_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int le32_compare_signed(const void *e1, const void *e2)
+{
+    const int d1 = get_le32_signed(e1);
+    const int d2 = get_le32_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+
 /*************************************************************************
 // find util
 **************************************************************************/
 
-upx_bytep find(const void *b, int blen, const void *what, int wlen)
+int find(const void *b, int blen, const void *what, int wlen)
 {
-    if (b == NULL || what == NULL || wlen <= 0)
+    if (b == NULL || blen <= 0 || what == NULL || wlen <= 0)
+        return -1;
+
+    int i;
+    const unsigned char *base = (const unsigned char *) b;
+    unsigned char firstc = * (const unsigned char *) what;
+
+    blen -= wlen;
+    for (i = 0; i <= blen; i++, base++)
+        if (*base == firstc && memcmp(base, what, wlen) == 0)
+            return i;
+
+    return -1;
+}
+
+
+int find_be16(const void *b, int blen, unsigned what)
+{
+    unsigned char w[2];
+    set_be16(w, what);
+    return find(b, blen, w, 2);
+}
+
+
+int find_be32(const void *b, int blen, unsigned what)
+{
+    unsigned char w[4];
+    set_be32(w, what);
+    return find(b, blen, w, 4);
+}
+
+
+int find_le16(const void *b, int blen, unsigned what)
+{
+    unsigned char w[2];
+    set_le16(w, what);
+    return find(b, blen, w, 2);
+}
+
+
+int find_le32(const void *b, int blen, unsigned what)
+{
+    unsigned char w[4];
+    set_le32(w, what);
+    return find(b, blen, w, 4);
+}
+
+
+/*************************************************************************
+// find util
+**************************************************************************/
+
+#if (UPX_VERSION_HEX < 0x019000)
+
+upx_bytep pfind(const void *b, int blen, const void *what, int wlen)
+{
+    if (b == NULL || blen <= 0 || what == NULL || wlen <= 0)
         return NULL;
 
     int i;
     const upx_bytep base = (const upx_bytep) b;
     unsigned char firstc = * (const upx_bytep) what;
 
-    for (i = 0; i <= blen - wlen; i++, base++)
-        if (*base == firstc && memcmp(base,what,wlen) == 0)
+    blen -= wlen;
+    for (i = 0; i <= blen; i++, base++)
+        if (*base == firstc && memcmp(base, what, wlen) == 0)
             return const_cast<upx_bytep>(base);
 
     return NULL;
 }
 
 
-upx_bytep find_be16(const void *b, int blen, unsigned what)
+upx_bytep pfind_be16(const void *b, int blen, unsigned what)
 {
     unsigned char w[2];
-    set_be16(w,what);
-    return find(b,blen,w,2);
+    set_be16(w, what);
+    return pfind(b, blen, w, 2);
 }
 
 
-upx_bytep find_be32(const void *b, int blen, unsigned what)
+upx_bytep pfind_be32(const void *b, int blen, unsigned what)
 {
     unsigned char w[4];
-    set_be32(w,what);
-    return find(b,blen,w,4);
+    set_be32(w, what);
+    return pfind(b, blen, w, 4);
 }
 
 
-upx_bytep find_le16(const void *b, int blen, unsigned what)
+upx_bytep pfind_le16(const void *b, int blen, unsigned what)
 {
     unsigned char w[2];
-    set_le16(w,what);
-    return find(b,blen,w,2);
+    set_le16(w, what);
+    return pfind(b, blen, w, 2);
 }
 
 
-upx_bytep find_le32(const void *b, int blen, unsigned what)
+upx_bytep pfind_le32(const void *b, int blen, unsigned what)
 {
     unsigned char w[4];
-    set_le32(w,what);
-    return find(b,blen,w,4);
+    set_le32(w, what);
+    return pfind(b, blen, w, 4);
 }
 
-
-/*************************************************************************
-// string util
-**************************************************************************/
-
-int upx_snprintf(char *str, long n, const char *format, ...)
-{
-    int r = -1;
-    if (n > 0)
-    {
-        va_list args;
-        va_start(args,format);
-        r = upx_vsnprintf(str,n,format,args);
-        va_end(args);
-    }
-    assert(r >= 0 && r < n);        // UPX assertion
-    return r;
-}
-
-
-int upx_vsnprintf(char *str, long n, const char *format, va_list ap)
-{
-    int r = -1;
-    if (n > 0)
-    {
-#if defined(HAVE_VSNPRINTF)
-        r = vsnprintf(str,(size_t)n,format,ap);
-#else
-        r = vsprintf(str,format,ap);
-#endif
-        // UPX extension: make sure the string is '\0' terminated in any case
-        str[n-1] = 0;
-    }
-    assert(r >= 0 && r < n);        // UPX assertion
-    return r;
-}
+#endif /* UPX_VERSION_HEX */
 
 
 /*************************************************************************
@@ -285,20 +337,21 @@ bool fn_is_same_file(const char *n1, const char *n2)
 #if 0 // not used
 
 #if defined(HAVE_LOCALTIME)
-void tm2str(char *s, const struct tm *tmp)
+void tm2str(char *s, size_t size, const struct tm *tmp)
 {
-    sprintf(s,"%04d-%02d-%02d %02d:%02d:%02d",
-            (int) tmp->tm_year + 1900, (int) tmp->tm_mon + 1,
-            (int) tmp->tm_mday,
-            (int) tmp->tm_hour, (int) tmp->tm_min, (int) tmp->tm_sec);
+    upx_snprintf(s, size, "%04d-%02d-%02d %02d:%02d:%02d",
+                 (int) tmp->tm_year + 1900, (int) tmp->tm_mon + 1,
+                 (int) tmp->tm_mday,
+                 (int) tmp->tm_hour, (int) tmp->tm_min, (int) tmp->tm_sec);
 }
 #endif
 
 
-void time2str(char *s, const time_t *t)
+void time2str(char *s, size_t size, const time_t *t)
 {
+    assert(size >= 18);
 #if defined(HAVE_LOCALTIME)
-    tm2str(s,localtime(t));
+    tm2str(s, size, localtime(t));
 #elif defined(HAVE_CTIME)
     const char *p = ctime(t);
     memset(s, ' ', 16);
@@ -317,15 +370,38 @@ void time2str(char *s, const time_t *t)
 // misc.
 **************************************************************************/
 
-char *center_string(const char *name, size_t s)
+bool set_method_name(char *buf, size_t size, int method, int level)
 {
-    static char buf[256+1];
-    size_t l = strlen(name);
-    assert(l <= s && l < sizeof(buf));
-    memset(buf,' ',s);
-    memcpy(buf+(s-l)/2,name,l);
-    buf[s] = 0;
-    return buf;
+    bool r = true;
+    const char *alg;
+    if (M_IS_NRV2B(method))
+        alg = "NRV2B";
+    else if (M_IS_NRV2D(method))
+        alg = "NRV2D";
+    else if (M_IS_NRV2E(method))
+        alg = "NRV2E";
+    else
+    {
+        alg = "???";
+        r = false;
+    }
+    if (level > 0)
+        upx_snprintf(buf, size, "%s/%d", alg, level);
+    else
+        upx_snprintf(buf, size, "%s", alg);
+    return r;
+}
+
+
+void center_string(char *buf, size_t size, const char *s)
+{
+    size_t l1 = size - 1;
+    size_t l2 = strlen(s);
+    assert(size > 0);
+    assert(l2 < size);
+    memset(buf, ' ', l1);
+    memcpy(buf+(l1-l2)/2, s, l2);
+    buf[l1] = 0;
 }
 
 
@@ -335,7 +411,7 @@ bool file_exists(const char *name)
     struct stat st;
 
     /* return true if we can open it */
-    fd = open(name, O_RDONLY);
+    fd = open(name, O_RDONLY, 0);
     if (fd >= 0)
     {
         (void) close(fd);
@@ -360,11 +436,14 @@ bool file_exists(const char *name)
 }
 
 
-bool maketempname(char *ofilename, const char *ifilename,
-                  const char *ext, bool force)
+bool maketempname(char *ofilename, size_t size,
+                  const char *ifilename, const char *ext, bool force)
 {
     char *ofext = NULL, *ofname;
-    int ofile = -1;
+    int ofile;
+
+    if (size <= 0)
+        return false;
 
     strcpy(ofilename, ifilename);
     for (ofname = fn_basename(ofilename); *ofname; ofname++)
@@ -376,13 +455,14 @@ bool maketempname(char *ofilename, const char *ifilename,
         ofext = ofilename + strlen(ofilename);
     strcpy(ofext, ext);
 
-    while (ofile < 1000)
+    for (ofile = 0; ofile < 1000; ofile++)
     {
+        assert(strlen(ofilename) < size);
         if (!file_exists(ofilename))
             return true;
         if (!force)
             break;
-        sprintf(ofext, ".%03d", ++ofile);
+        upx_snprintf(ofext, 5, ".%03d", ofile);
     }
 
     ofilename[0] = 0;
@@ -390,10 +470,14 @@ bool maketempname(char *ofilename, const char *ifilename,
 }
 
 
-bool makebakname(char *ofilename, const char *ifilename, bool force)
+bool makebakname(char *ofilename, size_t size,
+                 const char *ifilename, bool force)
 {
     char *ofext = NULL, *ofname;
-    int ofile = -1;
+    int ofile;
+
+    if (size <= 0)
+        return false;
 
     strcpy(ofilename, ifilename);
     for (ofname = fn_basename(ofilename); *ofname; ofname++)
@@ -411,13 +495,14 @@ bool makebakname(char *ofilename, const char *ifilename, bool force)
     else
         ofext[strlen(ofext)-1] = '~';
 
-    while (ofile < 1000)
+    for (ofile = 0; ofile < 1000; ofile++)
     {
+        assert(strlen(ofilename) < size);
         if (!file_exists(ofilename))
             return true;
         if (!force)
             break;
-        sprintf(ofext, ".%03d", ++ofile);
+        upx_snprintf(ofext, 5, ".%03d", ofile);
     }
 
     ofilename[0] = 0;
@@ -448,18 +533,12 @@ bool isafile(int fd)
 // return compression ratio, where 100% == 1000*1000 == 1e6
 **************************************************************************/
 
-unsigned get_ratio (unsigned u_len, unsigned c_len)
+unsigned get_ratio(unsigned u_len, unsigned c_len)
 {
-#if defined(__GNUC__)
-    const unsigned long long n = 1000000;
-#elif defined(_MSC_VER)
-    const unsigned __int64 n = 1000000;
-#else
-#error
-#endif
+    const unsigned n = 1000000;
     if (u_len <= 0)
-        return (unsigned) n;
-    return (unsigned) ((c_len * n) / u_len) + 5;
+        return c_len <= 0 ? 0 : n;
+    return (unsigned) ((c_len * (upx_uint64l)n) / u_len) + 5;
 }
 
 
@@ -508,7 +587,7 @@ int _is_executable(const char *, int , const char *)
     return 0;
 }
 
-//FIXME: something wants to link in ctime.o
+// FIXME: something wants to link in ctime.o
 time_t mktime(struct tm *)
 {
     return 0;

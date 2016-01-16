@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,46 +21,17 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
 #include "conf.h"
-#include "version.h"
 #include "file.h"
 #include "packer.h"
 #include "filter.h"
 #include "linker.h"
 #include "ui.h"
-
-#if defined(__linux__)
-#  define _NOTHREADS
-#endif
-#if defined(__GNUC__)
-#  define __THROW_BAD_ALLOC     throw bad_alloc()
-#  define __USE_MALLOC
-#  define enable                upx_stl_enable
-#endif
-
-#ifdef _MSC_VER
-#  pragma warning(push)
-#  pragma warning(disable: 4018 4100 4663)
-#endif
-#include <vector>
-#ifdef _MSC_VER
-#  pragma warning(pop)
-#endif
-
-#if defined(__GNUC__)
-#undef enable
-void (*__malloc_alloc_template<0>::__malloc_alloc_oom_handler)() = 0;
-#ifndef __USE_MALLOC
-template class  __default_alloc_template<false, 0>;
-#endif
-#endif
-
-using namespace std;
 
 
 /*************************************************************************
@@ -207,6 +179,8 @@ bool Packer::compress(upx_bytep in, upx_bytep out,
         conf.max_offset = opt->crp.max_offset;
     if (opt->crp.max_match != UPX_UINT_MAX && opt->crp.max_match < conf.max_match)
         conf.max_match = opt->crp.max_match;
+    if (opt->crp.m_size != UPX_UINT_MAX && opt->crp.m_size > 10000)
+        conf.m_size = opt->crp.m_size;
 
     // Avoid too many progress bar updates. 64 is s->bar_len in ui.cpp.
     unsigned step = (ph.u_len < 64*1024) ? 0 : ph.u_len / 64;
@@ -403,7 +377,7 @@ unsigned Packer::findOverlapOverhead(const upx_bytep c,
     unsigned nr = 0;          // statistics
 
     // pre-allocate the `overlap' buffer for in-place decompression
-    autoheap_array(upx_byte, overlap, ph.u_len + high + 512); // 512 safety bytes
+    ByteArray(overlap, ph.u_len + high + 512); // 512 safety bytes
 
     while (high >= low)
     {
@@ -445,7 +419,7 @@ void Packer::handleStub(InputFile *fif, OutputFile *fo, long size)
         {
             // copy stub from exe
             info("Copying original stub: %ld bytes", size);
-            autoheap_array(char, stub, size);
+            ByteArray(stub, size);
             fif->seek(0,SEEK_SET);
             fif->readx(stub,size);
             fo->write(stub,size);
@@ -603,7 +577,7 @@ bool Packer::readPackHeader(unsigned len, off_t seek_offset, upx_byte *buf)
     {
         if (!canUnpackVersion(ph.version))
         {
-            if (ph.format == UPX_F_W32_PE)
+            if (ph.format == UPX_F_WIN32_PE)
                 throwCantUnpack("this program is packed with an obsolete version and cannot be unpacked");
             else
                 throwCantUnpack("I am not compatible with older versions of UPX");
@@ -617,14 +591,14 @@ bool Packer::readPackHeader(unsigned len, off_t seek_offset, upx_byte *buf)
     {
 #if 0
         // FIXME: does this check make sense w.r.t. overlays ???
-        if (ph.format == UPX_F_W32_PE || ph.format == UPX_F_DOS_EXE)
+        if (ph.format == UPX_F_WIN32_PE || ph.format == UPX_F_DOS_EXE)
             // may get longer
             ((void)0);
         else
             throwCantUnpack("header size corrupted");
 #endif
     }
-    if (ph.method < M_NRV2B_LE32 || ph.method > M_NRV2D_LE16)
+    if (ph.method < M_NRV2B_LE32 || ph.method > M_NRV2E_LE16)
         throwCantUnpack("unknown compression method");
 
     // Some formats might be able to unpack "subformats". Ask them.
@@ -664,7 +638,7 @@ void Packer::checkPatch(void *l, void *p, int size)
 
 void Packer::patch_be16(void *l, int llen, unsigned old, unsigned new_)
 {
-    void *p = find_be16(l,llen,old);
+    void *p = pfind_be16(l,llen,old);
     checkPatch(l,p,2);
     set_be16(p,new_);
 }
@@ -672,7 +646,7 @@ void Packer::patch_be16(void *l, int llen, unsigned old, unsigned new_)
 
 void Packer::patch_be16(void *l, int llen, const void * old, unsigned new_)
 {
-    void *p = find(l,llen,old,2);
+    void *p = pfind(l,llen,old,2);
     checkPatch(l,p,2);
     set_be16(p,new_);
 }
@@ -680,7 +654,7 @@ void Packer::patch_be16(void *l, int llen, const void * old, unsigned new_)
 
 void Packer::patch_be32(void *l, int llen, unsigned old, unsigned new_)
 {
-    void *p = find_be32(l,llen,old);
+    void *p = pfind_be32(l,llen,old);
     checkPatch(l,p,4);
     set_be32(p,new_);
 }
@@ -688,7 +662,7 @@ void Packer::patch_be32(void *l, int llen, unsigned old, unsigned new_)
 
 void Packer::patch_be32(void *l, int llen, const void * old, unsigned new_)
 {
-    void *p = find(l,llen,old,4);
+    void *p = pfind(l,llen,old,4);
     checkPatch(l,p,4);
     set_be32(p,new_);
 }
@@ -696,7 +670,7 @@ void Packer::patch_be32(void *l, int llen, const void * old, unsigned new_)
 
 void Packer::patch_le16(void *l, int llen, unsigned old, unsigned new_)
 {
-    void *p = find_le16(l,llen,old);
+    void *p = pfind_le16(l,llen,old);
     checkPatch(l,p,2);
     set_le16(p,new_);
 }
@@ -704,7 +678,7 @@ void Packer::patch_le16(void *l, int llen, unsigned old, unsigned new_)
 
 void Packer::patch_le16(void *l, int llen, const void * old, unsigned new_)
 {
-    void *p = find(l,llen,old,2);
+    void *p = pfind(l,llen,old,2);
     checkPatch(l,p,2);
     set_le16(p,new_);
 }
@@ -712,7 +686,7 @@ void Packer::patch_le16(void *l, int llen, const void * old, unsigned new_)
 
 void Packer::patch_le32(void *l, int llen, unsigned old, unsigned new_)
 {
-    void *p = find_le32(l,llen,old);
+    void *p = pfind_le32(l,llen,old);
     checkPatch(l,p,4);
     set_le32(p,new_);
 }
@@ -720,7 +694,7 @@ void Packer::patch_le32(void *l, int llen, unsigned old, unsigned new_)
 
 void Packer::patch_le32(void *l, int llen, const void * old, unsigned new_)
 {
-    void *p = find(l,llen,old,4);
+    void *p = pfind(l,llen,old,4);
     checkPatch(l,p,4);
     set_le32(p,new_);
 }
@@ -843,23 +817,23 @@ void Packer::initLoader(const void *pdata, int plen, int pinfo, int small)
         "\n\0"
         "$Id: UPX "
         UPX_VERSION_STRING4
-        " Copyright (C) 1996-2001 the UPX Team. All Rights Reserved. $"
+        " Copyright (C) 1996-2002 the UPX Team. All Rights Reserved. $"
         "\n";
     static const char identsmall[] =
         "\n"
         "$Id: UPX "
-        "(C) 1996-2001 the UPX Team. All Rights Reserved. http://upx.sf.net $"
+        "(C) 1996-2002 the UPX Team. All Rights Reserved. http://upx.sf.net $"
         "\n";
     static const char identtiny[] = UPX_VERSION_STRING4;
 
     if (small < 0)
         small = opt->small;
     if (small >= 2)
-        addSection("IDENTSTR",identtiny,sizeof(identtiny));
+        addSection("IDENTSTR", identtiny, sizeof(identtiny));
     else if (small >= 1)
-        addSection("IDENTSTR",identsmall,sizeof(identsmall));
+        addSection("IDENTSTR", identsmall, sizeof(identsmall));
     else
-        addSection("IDENTSTR",identbig,sizeof(identbig));
+        addSection("IDENTSTR", identbig, sizeof(identbig));
 }
 
 
@@ -877,12 +851,12 @@ void Packer::addLoader(const char *s, ...)
 
 void Packer::addSection(const char *sname, const char *sdata, unsigned len)
 {
-    linker->addSection(sname,sdata,len);
+    linker->addSection(sname, sdata, len);
 }
 
 int Packer::getLoaderSection(const char *name, int *slen)
 {
-    return linker->getSection(name,slen);
+    return linker->getSection(name, slen);
 }
 
 
@@ -906,26 +880,33 @@ const char *Packer::getDecompressor() const
         "N2BSMA10""N2BDEC10""N2BSMA20""N2BDEC20""N2BSMA30"
         "N2BDEC30""N2BSMA40""N2BSMA50""N2BDEC50""N2BSMA60"
         "N2BDEC60";
-
     static const char nrv2b_le32_fast[] =
         "N2BFAS10""+80CXXXX""N2BFAS11""N2BDEC10""N2BFAS20"
         "N2BDEC20""N2BFAS30""N2BDEC30""N2BFAS40""N2BFAS50"
         "N2BDEC50""N2BFAS60""+40CXXXX""N2BFAS61""N2BDEC60";
-
     static const char nrv2d_le32_small[] =
         "N2DSMA10""N2DDEC10""N2DSMA20""N2DDEC20""N2DSMA30"
         "N2DDEC30""N2DSMA40""N2DSMA50""N2DDEC50""N2DSMA60"
         "N2DDEC60";
-
     static const char nrv2d_le32_fast[] =
         "N2DFAS10""+80CXXXX""N2DFAS11""N2DDEC10""N2DFAS20"
         "N2DDEC20""N2DFAS30""N2DDEC30""N2DFAS40""N2DFAS50"
         "N2DDEC50""N2DFAS60""+40CXXXX""N2DFAS61""N2DDEC60";
+    static const char nrv2e_le32_small[] =
+        "N2ESMA10""N2EDEC10""N2ESMA20""N2EDEC20""N2ESMA30"
+        "N2EDEC30""N2ESMA40""N2ESMA50""N2EDEC50""N2ESMA60"
+        "N2EDEC60";
+    static const char nrv2e_le32_fast[] =
+        "N2EFAS10""+80CXXXX""N2EFAS11""N2EDEC10""N2EFAS20"
+        "N2EDEC20""N2EFAS30""N2EDEC30""N2EFAS40""N2EFAS50"
+        "N2EDEC50""N2EFAS60""+40CXXXX""N2EFAS61""N2EDEC60";
 
     if (ph.method == M_NRV2B_LE32)
         return opt->small ? nrv2b_le32_small : nrv2b_le32_fast;
     if (ph.method == M_NRV2D_LE32)
         return opt->small ? nrv2d_le32_small : nrv2d_le32_fast;
+    if (ph.method == M_NRV2E_LE32)
+        return opt->small ? nrv2e_le32_small : nrv2e_le32_fast;
     return NULL;
 }
 
@@ -1037,7 +1018,7 @@ void Packer::compressWithFilters(Filter *parm_ft, unsigned *parm_overlapoh,
     // copy filters, eliminate duplicates, add a 0
     int nfilters = 0;
     bool zero_seen = false;
-    autoheap_array(int, filters, raw_nfilters + 2);
+    Array(int, filters, raw_nfilters + 2);
     for (f = raw_filters; *f >= 0; f++)
     {
         if (*f == 0)
@@ -1068,7 +1049,7 @@ void Packer::compressWithFilters(Filter *parm_ft, unsigned *parm_overlapoh,
     unsigned otemp_buf_size = 1;
     if (nfilters > 1 && strategy >= 0)
         otemp_buf_size = buf_len + buf_len/8 + 256;
-    autoheap_array(upx_byte, otemp_buf, otemp_buf_size);
+    ByteArray(otemp_buf, otemp_buf_size);
     if (nfilters > 1 && strategy >= 0)
         otemp = otemp_buf;
 

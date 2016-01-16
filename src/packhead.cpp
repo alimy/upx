@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -100,7 +101,7 @@ void PackHeader::putPackHeader(upx_bytep buf, unsigned len)
 #if defined(UNUPX)
     throwBadLoader();
 #else
-    upx_bytep l = find_le32(buf,len,magic);
+    upx_bytep l = pfind_le32(buf,len,magic);
     if (l == 0)
         throwBadLoader();
 
@@ -162,16 +163,22 @@ void PackHeader::putPackHeader(upx_bytep buf, unsigned len)
 
 bool PackHeader::fillPackHeader(upx_bytep buf, unsigned len)
 {
-    upx_bytep l = find_le32(buf,len,magic);
-    if (l == 0)
+    buf_offset = find_le32(buf, len, magic);
+    if (buf_offset < 0)
         return false;
-    buf_offset = l - buf;
+    if (buf_offset + 8 > (long)len)
+        throwCantUnpack("fillPackHeader: buffer to small");
+
+    const upx_byte *l = buf + buf_offset;
 
     version = l[4];
     format = l[5];
     method = l[6];
     level = l[7];
     filter_cto = 0;
+
+    if (buf_offset + get_packheader_size(version, format) > (long)len)
+        throwCantUnpack("fillPackHeader: buffer to small");
 
     // the new variable length header
     int off_filter = 0;
@@ -244,7 +251,7 @@ bool PackHeader::checkPackHeader(const upx_bytep hbuf, int hlen) const
     // check header_checksum
     if (version > 9)
         if (hbuf[hs - 1] != get_packheader_checksum(hbuf, hs - 1))
-            throwCantUnpack("header corrupted");
+            throwCantUnpack("header checksum error");
 
     return true;
 }

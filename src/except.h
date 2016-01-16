@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -30,14 +31,8 @@
 
 #ifdef __cplusplus
 
-#include <exception>
-#include <new>
-#include <typeinfo>
-
-using namespace std;
-
 const char *prettyName(const char *n);
-const char *prettyName(const type_info &ti);
+const char *prettyName(const std::type_info &ti);
 
 
 /*************************************************************************
@@ -217,17 +212,19 @@ public:
 #endif
 
 void throwCantPack(const char *msg) NORET;
-void throwUnknownExecutableFormat(const char *msg = 0, bool warn = false) NORET;
-void throwNotCompressible(const char *msg = 0) NORET;
-void throwAlreadyPacked(const char *msg = 0) NORET;
+void throwUnknownExecutableFormat(const char *msg = NULL, bool warn = false) NORET;
+void throwNotCompressible(const char *msg = NULL) NORET;
+void throwAlreadyPacked(const char *msg = NULL) NORET;
+void throwAlreadyPackedByUPX(const char *msg = NULL) NORET;
 void throwCantUnpack(const char *msg) NORET;
-void throwNotPacked(const char *msg = 0) NORET;
+void throwNotPacked(const char *msg = NULL) NORET;
 void throwFilterException() NORET;
 void throwBadLoader() NORET;
 void throwChecksumError() NORET;
 void throwCompressedDataViolation() NORET;
 void throwInternalError(const char *msg) NORET;
-void throwIOException(const char *msg = 0, int e = 0) NORET;
+void throwIOException(const char *msg = NULL, int e = 0) NORET;
+void throwEOFException(const char *msg = NULL, int e = 0) NORET;
 
 #undef NORET
 

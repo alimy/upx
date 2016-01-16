@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,30 +21,12 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
-#if !defined(__linux__) || !defined(__i386__)
-#  error "this stub must be compiled under linux/i386"
-#endif
-
-struct timex;
-
-#define __need_timeval
-#include <sys/types.h>
-#include <sys/resource.h>
-#include <elf.h>
-#include <fcntl.h>
-#include <sched.h>
-#include <sys/time.h>
-#include <time.h>
-#include <linux/errno.h>
-#include <linux/mman.h>
-#include <linux/personality.h>
-//#include <linux/timex.h>
-#include <linux/unistd.h>
+#include "linux.hh"
 
 
 /*************************************************************************
@@ -52,106 +35,6 @@ struct timex;
 
 // use malloc instead of the bss segement
 #define USE_MALLOC
-
-
-/*************************************************************************
-// syscalls
-//
-// Because of different <asm/unistd.h> versions and subtle bugs
-// in both gcc and egcs we define all syscalls manually.
-// Also, errno conversion is not necessary in our case.
-**************************************************************************/
-
-#undef _syscall0
-#undef _syscall1
-#undef _syscall2
-#undef _syscall3
-#ifndef __NR__exit
-#  define __NR__exit __NR_exit
-#endif
-
-#if defined(__i386__)
-#define _syscall0(type,name) \
-type name(void) \
-{ \
-long __res; \
-__asm__ __volatile__ ("int $0x80" \
-        : "=a" (__res) \
-        : "a" (__NR_##name)); \
-return (type) __res; \
-}
-
-#define _syscall1(type,name,type1,arg1) \
-type name(type1 arg1) \
-{ \
-long __res; \
-__asm__ __volatile__ ("int $0x80" \
-        : "=a" (__res) \
-        : "a" (__NR_##name),"b" ((long)(arg1))); \
-return (type) __res; \
-}
-
-#define _syscall2(type,name,type1,arg1,type2,arg2) \
-type name(type1 arg1,type2 arg2) \
-{ \
-long __res; \
-__asm__ __volatile__ ("int $0x80" \
-        : "=a" (__res) \
-        : "a" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2))); \
-return (type) __res; \
-}
-
-#define _syscall3(type,name,type1,arg1,type2,arg2,type3,arg3) \
-type name(type1 arg1,type2 arg2,type3 arg3) \
-{ \
-long __res; \
-__asm__ __volatile__ ("int $0x80" \
-        : "=a" (__res) \
-        : "a" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
-                  "d" ((long)(arg3))); \
-return (type) __res; \
-}
-#endif /* __i386__ */
-
-#define access          syscall_access
-#define fcntl           syscall_fcntl
-#define getcwd          syscall_getcwd
-#define getrusage       syscall_getrusage
-#define gettimeofday    syscall_gettimeofday
-#define nanosleep       syscall_nanosleep
-#define open            syscall_open
-#define personality     syscall_personality
-
-static inline _syscall2(int,access,const char *,file,int,mode)
-static inline _syscall1(int,adjtimex,struct timex *,ntx)
-static inline _syscall1(int,close,int,fd)
-static inline _syscall3(int,execve,const char *,file,char **,argv,char **,envp)
-static inline _syscall1(int,_exit,int,exitcode)
-static inline _syscall3(int,fcntl,int,fd,int,cmd,long,arg)
-static inline _syscall2(int,ftruncate,int,fd,size_t,len)
-static inline _syscall0(pid_t,fork)
-static inline _syscall2(int,getcwd,char *,buf,unsigned long,size);
-static inline _syscall0(pid_t,getpid)
-static inline _syscall2(int,getrusage,int,who,struct rusage *,usage);
-static inline _syscall2(int,gettimeofday,struct timeval *,tv,void *,tz)
-static inline _syscall3(off_t,lseek,int,fd,off_t,offset,int,whence)
-static inline _syscall1(caddr_t,mmap,const int *,args)
-static inline _syscall3(int,msync,const void *,start,size_t,length,int,flags)
-static inline _syscall2(int,munmap,void *,start,size_t,length)
-static inline _syscall2(int,nanosleep,const struct timespec *,rqtp,struct timespec *,rmtp)
-static inline _syscall3(int,open,const char *,file,int,flag,int,mode)
-static inline _syscall1(int,personality,unsigned long,persona)
-static inline _syscall3(int,read,int,fd,char *,buf,off_t,count)
-static inline _syscall3(pid_t,waitpid,pid_t,pid,int *,wait_stat,int,options)
-static inline _syscall3(int,write,int,fd,const char *,buf,off_t,count)
-static inline _syscall1(int,unlink,const char *,file)
-#define exit _exit
-
-
-#undef int32_t
-#undef uint32_t
-#define int32_t         int
-#define uint32_t        unsigned int
 
 
 /*************************************************************************
@@ -251,27 +134,10 @@ static char *upx_itoa(char *buf, unsigned long v)
 **************************************************************************/
 
 // must be the same as in p_unix.cpp !
-#define OVERHEAD        2048
 #if !defined(USE_MALLOC)
 #  define BLOCKSIZE     (512*1024)
 #endif
 
-
-// patch & magic constants for our loader (le32 format)
-#define UPX1            0x31585055          // "UPX1"
-#define UPX2            0x32585055          // "UPX2"
-#define UPX3            0x33585055          // "UPX4"
-#define UPX4            0x34585055          // "UPX4"
-#define UPX5            0x35585055          // "UPX5"
-#define UPX_MAGIC_LE32  0x21585055          // "UPX!"
-
-
-typedef int nrv_int;
-typedef int nrv_int32;
-typedef unsigned nrv_uint;
-typedef unsigned nrv_uint32;
-#define nrv_byte unsigned char
-#define nrv_voidp void *
 
 #if defined(__i386__)
 extern int
@@ -282,6 +148,10 @@ extern int
 nrv2d_decompress_asm_fast ( const nrv_byte *src, nrv_uint src_len,
                             nrv_byte *dst, nrv_uint *dst_len );
 #define nrv2d_decompress        nrv2d_decompress_asm_fast
+extern int
+nrv2e_decompress_asm_fast ( const nrv_byte *src, nrv_uint src_len,
+                            nrv_byte *dst, nrv_uint *dst_len );
+#define nrv2e_decompress        nrv2e_decompress_asm_fast
 #endif /* __i386__ */
 
 
@@ -502,6 +372,8 @@ void upx_main(char *argv[], char *envp[])
             i = nrv2b_decompress(buf+i, size[1], buf, &out_len);
 #elif defined(NRV2D)
             i = nrv2d_decompress(buf+i, size[1], buf, &out_len);
+#elif defined(NRV2E)
+            i = nrv2e_decompress(buf+i, size[1], buf, &out_len);
 #else
 #  error
 #endif

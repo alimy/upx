@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,13 +21,15 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_FILE_H
 #define __UPX_FILE_H
+
+class MemBuffer;
 
 
 /*************************************************************************
@@ -48,17 +51,17 @@ protected:
     FileBase();
     virtual ~FileBase();
 public:
-    virtual void close();
-    virtual bool close(int dummy);
+    virtual bool close();
+    virtual void closex();
     virtual bool isOpen() const { return _fd >= 0; }
     int getFd() const { return _fd; }
     const char *getName() const { return _name; }
 
 protected:
     void sopen();
-    virtual int read(void * buf, int len);
-    virtual int readx(void * buf, int len);
-    virtual void write(const void * buf, int len);
+    virtual int read(void *buf, int len);
+    virtual int readx(void *buf, int len);
+    virtual void write(const void *buf, int len);
     virtual void seek(off_t off, int whence);
     virtual off_t tell() const;
 
@@ -89,8 +92,12 @@ public:
         sopen(name, flags, -1);
     }
 
-    virtual int read(void * buf, int len);
-    virtual int readx(void * buf, int len);
+    virtual int read(void *buf, int len);
+    virtual int readx(void *buf, int len);
+    virtual int read(MemBuffer *buf, int len);
+    virtual int readx(MemBuffer *buf, int len);
+    virtual int read(MemBuffer &buf, int len);
+    virtual int readx(MemBuffer &buf, int len);
 
     virtual void seek(off_t off, int whence);
     virtual off_t tell() const;
@@ -113,14 +120,29 @@ public:
     {
         sopen(name, flags, -1, mode);
     }
-    virtual bool openStdout(bool binmode=true, bool force=false);
+    virtual bool openStdout(int flags=0, bool force=false);
 
-    virtual void write(const void * buf, int len);
+    virtual void write(const void *buf, int len);
 
     off_t getBytesWritten() const { return bytes_written; }
 
+#if (UPX_VERSION_HEX >= 0x019000)
+    // FIXME - these won't work when using the `--stdout' option
+    virtual void seek(off_t off, int whence)
+    {
+        assert(!opt->to_stdout);
+        super::seek(off,whence);
+    }
+    virtual void rewrite(const void *buf, int len)
+    {
+        assert(!opt->to_stdout);
+        write(buf, len);
+        bytes_written -= len;       // restore
+    }
+#endif
+
     // util
-    static void dump(const char *name, const void * buf, int len, int flags=-1);
+    static void dump(const char *name, const void *buf, int len, int flags=-1);
 
 protected:
     off_t bytes_written;
@@ -131,6 +153,7 @@ protected:
 //
 **************************************************************************/
 
+#if 0
 class MemoryOutputFile : public FileBase
 {
     typedef FileBase super;
@@ -138,7 +161,7 @@ public:
     MemoryOutputFile();
     virtual ~MemoryOutputFile() { b = NULL; }
 
-    virtual bool close(int) { b = NULL; return true; }
+    virtual bool close() { b = NULL; return true; }
     virtual bool isOpen() const { return b != NULL; }
     virtual void open(void *buf, unsigned size)
         { b = (upx_bytep) buf; b_size = size; }
@@ -153,6 +176,7 @@ protected:
     unsigned b_pos;
     off_t bytes_written;
 };
+#endif /* if 0 */
 
 
 #endif /* already included */

@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -64,6 +65,7 @@ struct screen_data_t
     int rows;
     int cursor_x;
     int cursor_y;
+    int scroll_counter;
     unsigned char attr;
     unsigned char init_attr;
     unsigned char empty_attr;
@@ -121,7 +123,7 @@ static __inline__
 unsigned short make_cell(screen_t *this, int ch, int attr)
 {
     UNUSED(this);
-    return ((attr & 0xff) << 8) | (ch & 0xff);
+    return (unsigned short) (((attr & 0xff) << 8) | (ch & 0xff));
 }
 
 
@@ -196,6 +198,7 @@ static void setCursor(screen_t *this, int x, int y)
 }
 
 
+/*
 // I added ScreenGetCursor, because when upx prints something longer than
 // 1 line (an error message for example), the this->data->cursor_y can
 // have a bad value - ml1050
@@ -204,6 +207,7 @@ static void setCursor(screen_t *this, int x, int y)
 //   Laszlo: when does this happen ? This probably indicates a
 //     bug in c_screen.cpp(print0) I've introduced with
 //     the 2 passes implementation.
+*/
 
 static void getCursor(const screen_t *this, int *x, int *y)
 {
@@ -311,7 +315,7 @@ static int init(screen_t *this, int fd)
         return -1;
 
 #if 1 && defined(__DJGPP__)
-    /* check for Windows NT/2000 */
+    /* check for Windows NT/2000/XP */
     if (_get_dos_version(1) == 0x0532)
         return -1;
 #endif
@@ -418,6 +422,7 @@ static int scrollUp(screen_t *this, int lines)
     for (y = sr - lines; y < sr; y++)
         clearLine(this,y);
 
+    this->data->scroll_counter += lines;
     return lines;
 }
 
@@ -455,7 +460,14 @@ static int scrollDown(screen_t *this, int lines)
 #endif
     }
 
+    this->data->scroll_counter -= lines;
     return lines;
+}
+
+
+static int getScrollCounter(const screen_t *this)
+{
+    return this->data->scroll_counter;
 }
 
 
@@ -530,6 +542,7 @@ static const screen_t driver =
     updateLineN,
     scrollUp,
     scrollDown,
+    getScrollCounter,
     s_kbhit,
     intro,
     (struct screen_data_t *) 0

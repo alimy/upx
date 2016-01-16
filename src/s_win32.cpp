@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -61,6 +62,7 @@ struct screen_data_t
     int rows;
     int cursor_x;
     int cursor_y;
+    int scroll_counter;
 
     WORD attr;
     WORD init_attr;
@@ -186,6 +188,7 @@ static void putCharAttr(screen_t *this, int ch, int attr, int x, int y)
 {
     CHAR_INFO ci;
     SMALL_RECT region = { P(x), P(y), P(x), P(y) };
+    ci.Char.UnicodeChar = 0;
     ci.Char.AsciiChar = (CHAR) ch;
     ci.Attributes = (WORD) attr;
     WriteConsoleOutputA(this->data->ho, &ci, size11, pos00, &region);
@@ -211,6 +214,7 @@ static void putStringAttr(screen_t *this, const char *s, int attr, int x, int y)
     SMALL_RECT region = { P(x), P(y), P(x + l - 1), P(y) };
     for (i = 0; i < l; i++)
     {
+        ci[i].Char.UnicodeChar = 0;
         ci[i].Char.AsciiChar = *s++;
         ci[i].Attributes = (WORD) attr;
     }
@@ -353,6 +357,7 @@ static void updateLineN(screen_t *this, const void *line, int y, int len)
         SMALL_RECT region = { 0, P(y), P(0 + l - 1), P(y) };
         for (i = 0; i < l; i++)
         {
+            ci[i].Char.UnicodeChar = 0;
             ci[i].Char.AsciiChar = *s++;
             ci[i].Attributes = *s++;
         }
@@ -414,12 +419,21 @@ static int do_scroll(screen_t *this, int lines, int way)
 
 static int scrollUp(screen_t *this, int lines)
 {
-    return do_scroll(this, lines, 0);
+    lines = do_scroll(this, lines, 0);
+    this->data->scroll_counter += lines;
+    return lines;
 }
 
 static int scrollDown(screen_t *this, int lines)
 {
-    return do_scroll(this, lines, 1);
+    lines = do_scroll(this, lines, 1);
+    this->data->scroll_counter -= lines;
+    return lines;
+}
+
+static int getScrollCounter(const screen_t *this)
+{
+    return this->data->scroll_counter;
 }
 
 
@@ -427,7 +441,11 @@ static int s_kbhit(screen_t *this)
 {
 #if defined(HAVE_CONIO_H)
     UNUSED(this);
+# if defined(__BORLANDC__)
+    return kbhit();
+# else
     return _kbhit();
+# endif
 #else
     UNUSED(this);
     return 0;
@@ -484,6 +502,7 @@ static const screen_t driver =
     updateLineN,
     scrollUp,
     scrollDown,
+    getScrollCounter,
     s_kbhit,
     intro,
     (struct screen_data_t *) 0

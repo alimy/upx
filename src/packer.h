@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,13 +21,15 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
 #ifndef __UPX_PACKER_H
 #define __UPX_PACKER_H
+
+#include "mem.h"
 
 class InputFile;
 class OutputFile;
@@ -67,7 +70,7 @@ public:
     int header_checksum;
 
     // info fields set by fillPackHeader()
-    long buf_offset;
+    long buf_offset;            // must be signed
 
     // info fields set by Packer::compress()
     //unsigned min_offset_found;
@@ -233,6 +236,11 @@ private:
     // setup local options for each packer
     struct options_t local_options;
     struct options_t *saved_opt;
+
+private:
+    // disable copy and assignment
+    Packer(Packer const &); // {}
+    Packer& operator= (Packer const &); // { return *this; }
 };
 
 

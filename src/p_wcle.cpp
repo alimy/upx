@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -71,6 +72,8 @@ int PackWcle::getCompressionMethod() const
         return M_NRV2B_LE32;
     if (M_IS_NRV2D(opt->method))
         return M_NRV2D_LE32;
+    if (M_IS_NRV2E(opt->method))
+        return M_NRV2E_LE32;
     return opt->level > 1 && file_size >= 512*1024 ? M_NRV2D_LE32 : M_NRV2B_LE32;
 }
 
@@ -131,6 +134,7 @@ void PackWcle::encodeEntryTable()
     }
 
     //if (Opt_debug) printf("%d entries encoded.\n",n);
+    UNUSED(n);
 
     soentries = p - ientries + 1;
     oentries = ientries;
@@ -227,39 +231,24 @@ void PackWcle::encodeFixups()
     ofixups[4] = 1;
 }
 
-// FIXME: sparc & native CC
-// #include <alloca.h>
 
 int PackWcle::preprocessFixups()
 {
     unsigned ic,jc;
     int big;
 
-#if defined(__GNUC__)
-    unsigned counts[objects+2];
-#else
-    unsigned *counts = (unsigned *) alloca((objects+2)*sizeof(*counts));
-#endif
+    Array(unsigned, counts, objects+2);
     countFixups(counts);
 
     for (ic = jc = 0; ic < objects; ic++)
         jc += counts[ic];
 
-#if defined(__GNUC__)
-    upx_byte rl[jc];
-    unsigned nelems;          // use this var to avoid a compiler confusion
-    nelems = counts[ic++]+1;
-    upx_byte selector_fixups_alloc[nelems];
-    upx_byte *selector_fixups = selector_fixups_alloc;
-    nelems = counts[ic]+1;
-    upx_byte selfrel_fixups_alloc[nelems];
-    upx_byte *selfrel_fixups = selfrel_fixups_alloc;
-#else
-    upx_byte *rl = (upx_byte*) alloca (jc);
-    upx_byte *selector_fixups = (upx_byte*) alloca (counts[ic++]+1);
-    upx_byte *selfrel_fixups = (upx_byte*) alloca (counts[ic]+1);
-#endif
-    upx_byte *srf = selector_fixups, *slf = selfrel_fixups;
+    ByteArray(rl, jc);
+    ByteArray(srf, counts[objects+0]+1);
+    ByteArray(slf, counts[objects+1]+1);
+
+    upx_byte *selector_fixups = srf;
+    upx_byte *selfrel_fixups = slf;
     unsigned rc = 0;
 
     upx_byte *fix = ifixups;
@@ -267,7 +256,7 @@ int PackWcle::preprocessFixups()
     {
         while ((unsigned)(fix - ifixups) < get_le32(ifpage_table+ic+1))
         {
-            const short fixp2 = get_le16(fix+2);
+            const int fixp2 = get_le16_signed(fix+2);
             unsigned value;
 
             switch (*fix)
@@ -380,6 +369,7 @@ int PackWcle::preprocessFixups()
     return big;
 }
 
+
 #define RESERVED 0x1000
 void PackWcle::encodeImage(const Filter *ft)
 {
@@ -430,7 +420,7 @@ void PackWcle::pack(OutputFile *fo)
     readImage();
     readNonResidentNames();
 
-    if (find_le32(iimage,UPX_MIN(soimage,256u),UPX_MAGIC_LE32))
+    if (pfind_le32(iimage,UPX_MIN(soimage,256u),UPX_MAGIC_LE32))
         throwAlreadyPacked();
 
     if (ih.init_ss_object != objects)
@@ -447,7 +437,7 @@ void PackWcle::pack(OutputFile *fo)
     const unsigned calltrickoffset = ft.cto << 24;
 
     // attach some useful data at the end of preprocessed fixups
-    ifixups[sofixups++] = (unsigned char) ih.automatic_data_object;
+    ifixups[sofixups++] = (unsigned char) (unsigned) ih.automatic_data_object;
     unsigned ic = objects*sizeof(*iobject_table);
     memcpy(ifixups+sofixups,wrkmem,ic);
     delete[] wrkmem; wrkmem = NULL;
@@ -456,7 +446,7 @@ void PackWcle::pack(OutputFile *fo)
     set_le32(ifixups+sofixups,ih.init_esp_offset+IOT(ih.init_ss_object-1,my_base_address)); // old stack pointer
     set_le32(ifixups+sofixups+4,ih.init_eip_offset+text_vaddr); // real entry point
     set_le32(ifixups+sofixups+8,mps*pages); // virtual address of unpacked relocations
-    ifixups[sofixups+12] = (unsigned char) objects;
+    ifixups[sofixups+12] = (unsigned char) (unsigned) objects;
     sofixups += 13;
 
     encodeImage(&ft);
@@ -538,7 +528,7 @@ void PackWcle::pack(OutputFile *fo)
     }
     patch_le32(p,d_len,"RELO",mps*pages);
 
-    unsigned jpos = find_le32(oimage,e_len,get_le32("JMPD")) - oimage;
+    unsigned jpos = pfind_le32(oimage,e_len,get_le32("JMPD")) - oimage;
     patch_le32(oimage,e_len,"JMPD",ic-jpos-4);
 
     jpos = (((ph.c_len+3)&~3) + d_len+3)/4;
@@ -750,6 +740,7 @@ void PackWcle::decodeEntryTable()
     }
 
     //if (Opt_debug) printf("\n%d entries decoded.\n",n);
+    UNUSED(n);
 
     soentries = p - ientries + 1;
     oentries = ientries;

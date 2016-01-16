@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -29,15 +30,15 @@
 #define __UPX_P_W32PE_H
 
 
-class PackW32Pe_Interval;
-class PackW32Pe_Reloc;
-class PackW32Pe_Resource;
-class PackW32Pe_Export;
-
-
 /*************************************************************************
 // w32/pe
 **************************************************************************/
+
+class PackW32Pe__Interval;
+class PackW32Pe__Reloc;
+class PackW32Pe__Resource;
+class PackW32Pe__Export;
+
 
 class PackW32Pe : public Packer
 {
@@ -47,7 +48,7 @@ public:
     PackW32Pe(InputFile *f);
     ~PackW32Pe();
     virtual int getVersion() const { return 12; }
-    virtual int getFormat() const { return UPX_F_W32_PE; }
+    virtual int getFormat() const { return UPX_F_WIN32_PE; }
     virtual const char *getName() const { return isrtm ? "rtm32/pe" : "win32/pe"; }
     virtual int getCompressionMethod() const;
     virtual const int *getFilters() const;
@@ -78,27 +79,27 @@ protected:
     unsigned soimpdlls;
 
     int processRelocs();
-    void processRelocs(PackW32Pe_Reloc *);
+    void processRelocs(PackW32Pe__Reloc *);
     void rebuildRelocs(upx_byte *&);
     upx_byte *orelocs;
     unsigned sorelocs;
     upx_byte *oxrelocs;
     unsigned soxrelocs;
 
-    void processExports(PackW32Pe_Export *);
-    void processExports(PackW32Pe_Export *,unsigned);
+    void processExports(PackW32Pe__Export *);
+    void processExports(PackW32Pe__Export *,unsigned);
     void rebuildExports();
     upx_byte *oexport;
     unsigned soexport;
 
-    void processResources(PackW32Pe_Resource *);
-    void processResources(PackW32Pe_Resource *, unsigned);
+    void processResources(PackW32Pe__Resource *);
+    void processResources(PackW32Pe__Resource *, unsigned);
     void rebuildResources(upx_byte *&);
     upx_byte *oresources;
     unsigned soresources;
 
-    void processTls(PackW32Pe_Interval *);
-    void processTls(PackW32Pe_Reloc *,const PackW32Pe_Interval *,unsigned);
+    void processTls(PackW32Pe__Interval *);
+    void processTls(PackW32Pe__Reloc *,const PackW32Pe__Interval *,unsigned);
     void rebuildTls();
     upx_byte *otls;
     unsigned sotls;
@@ -153,8 +154,12 @@ protected:
         {
             LE32    vaddr;
             LE32    size;
-        }       ddirs[16];
-    } ih, oh;
+        }
+        __attribute_packed;
+
+        struct ddirs_t ddirs[16];
+    }
+    __attribute_packed;
 
     struct pe_section_t
     {
@@ -165,7 +170,11 @@ protected:
         LE32    rawdataptr;
         char    _[12];
         LE32    flags;
-    } *isection;
+    }
+    __attribute_packed;
+
+    pe_header_t ih, oh;
+    pe_section_t *isection;
 
     static unsigned virta2objnum (unsigned, pe_section_t *, unsigned);
     unsigned tryremove (unsigned, unsigned);
@@ -219,10 +228,10 @@ protected:
         FBIG_ENDIAN     = 0x8000
     };
 
-    // resource types
+    // predefined resource types
     enum {
         RT_CURSOR = 1, RT_BITMAP, RT_ICON, RT_MENU, RT_DIALOG, RT_STRING,
-        RT_FONTDIR, RT_FONT, RT_ACCELERATOR, RT_RCDATA, RT_MESSAGE_TABLE,
+        RT_FONTDIR, RT_FONT, RT_ACCELERATOR, RT_RCDATA, RT_MESSAGETABLE,
         RT_GROUP_CURSOR, RT_GROUP_ICON = 14, RT_VERSION = 16, RT_DLGINCLUDE,
         RT_PLUGPLAY = 19, RT_VXD, RT_ANICURSOR, RT_ANIICON, RT_HTML,
         RT_MANIFEST, RT_LAST

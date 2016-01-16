@@ -13,8 +13,7 @@ B<upx> S<[ I<command> ]> S<[ I<options> ]> I<filename>...
 =head1 ABSTRACT
 
             The Ultimate Packer for eXecutables
-  Copyright (c) 1996-2001 Markus Oberhumer & Laszlo Molnar
-       http://wildsau.idv.uni-linz.ac.at/mfx/upx.html
+  Copyright (c) 1996-2002 Markus Oberhumer & Laszlo Molnar
                http://upx.sourceforge.net
 
 
@@ -23,24 +22,24 @@ several different executable formats. It achieves an excellent compression
 ratio and offers I<*very*> fast decompression. Your executables suffer
 no memory overhead or other drawbacks for most of the formats supported.
 
-While you may use UPX freely for both non-commercial and commercial
+While you may use B<UPX> freely for both non-commercial and commercial
 executables (for details see the file LICENSE), we would highly
-appreciate if you credit UPX and ourselves in the documentation,
-possibly including a reference to the UPX home page. Thanks.
+appreciate if you credit B<UPX> and ourselves in the documentation,
+possibly including a reference to the B<UPX> home page. Thanks.
 
-[ Using UPX in non-OpenSource applications without proper credits
+[ Using B<UPX> in non-OpenSource applications without proper credits
 is considered not politically correct ;-) ]
 
 
 
 =head1 DISCLAIMER
 
-UPX comes with ABSOLUTELY NO WARRANTY; for details see the file LICENSE.
+B<UPX> comes with ABSOLUTELY NO WARRANTY; for details see the file LICENSE.
 
-Having said that, we think that UPX is quite stable now. Indeed we
+Having said that, we think that B<UPX> is quite stable now. Indeed we
 have compressed lots of files without any problems. Also, the
 current version has undergone several months of beta testing -
-actually it's almost 2 years since our first public beta.
+actually it's more than 4 years since our first public beta back in 1998.
 
 This is the first production quality release, and we plan that future 1.xx
 releases will be backward compatible with this version.
@@ -66,16 +65,16 @@ B<UPX> is a versatile executable packer with the following features:
       maintained internally.
 
   - universal: UPX can pack a number of executable formats:
+      * atari/tos
       * dos/exe
       * dos/sys
       * dos/com
       * djgpp2/coff
-      * watcom/le (supporting DOS4G, PMODE/W, DOS32a and CauseWay)
-      * win32/pe
+      * linux/386
       * rtm32/pe
       * tmt/adam
-      * linux/386
-      * atari/tos
+      * watcom/le (supporting DOS4G, PMODE/W, DOS32a and CauseWay)
+      * win32/pe
 
   - portable: UPX is written in portable endian-neutral C++
 
@@ -86,7 +85,7 @@ B<UPX> is a versatile executable packer with the following features:
       the full source code of UPX is released under the GNU General Public
       License (GPL) !
 
-You probably understand now why we call UPX the "I<ultimate>"
+You probably understand now why we call B<UPX> the "I<ultimate>"
 executable packer.
 
 
@@ -100,7 +99,7 @@ specified on the command line.
 
 =head2 Decompress
 
-All UPX supported file formats can be unpacked using the B<-d> switch, eg.
+All B<UPX> supported file formats can be unpacked using the B<-d> switch, eg.
 B<upx -d yourfile.exe> will uncompress the file you've just compressed.
 
 =head2 Test
@@ -130,7 +129,7 @@ B<-q -q -q> (or B<-qqq>): produce no output at all
 
 B<--help>: prints the help
 
-B<--version>: print the version of UPX
+B<--version>: print the version of B<UPX>
 
 [ ...to be written... - type `B<upx --help>' for now ]
 
@@ -162,7 +161,7 @@ Compression level B<--best> may take a long time.
 
 =back
 
-Note that compression level B<-9> can be somewhat slow for large
+Note that compression level B<--best> can be somewhat slow for large
 files, but you definitely should use it when releasing a final version
 of your program.
 
@@ -171,9 +170,37 @@ squeezes out even some more compression ratio. While it is usually fine
 to use this option with your favorite .com file it may take a long time
 to compress a multi-megabyte program. You have been warned.
 
-Tips for even better compression:
+Quick start for achieving the best compression ratio:
 
 =over 4
+
+Try B<upx --best --crp-ms=999999 --nrv2b -o result_2b.exe> and
+B<upx --best --crp-ms=999999 --nrv2d -o result_2d.exe>, and keep the smaller
+of the two resulting executables.
+
+=back
+
+Details for achieving the best compression ratio:
+
+=over 4
+
+=item *
+
+Use the option B<--best>.
+
+=item *
+
+Try the option B<--crp-ms=NUMBER>. This uses more memory during compression
+to achieve a (slightly) better compression ratio.
+
+NUMBER must be a decimal value from 10000 to 999999, inclusive.
+The default value is 10000 (ten thousand).
+
+=item *
+
+Manually compress the program multiple times, thereby trying all available
+compression methods and keep the best version. Currently available
+compression methods options are B<--nrv2b> and B<--nrv2d>.
 
 =item *
 
@@ -213,15 +240,15 @@ options for UPX. These options are interpreted first and
 can be overwritten by explicit command line parameters.
 For example:
 
-    for DOS/Windows:   set UPX=-9 --compress-icons#1
-    for sh/ksh/zsh:    UPX="-9 --compress-icons=1"; export UPX
-    for csh/tcsh:      setenv UPX "-9 --compress-icons=1"
+    for DOS/Windows:   set UPX=-9 --compress-icons#0
+    for sh/ksh/zsh:    UPX="-9 --compress-icons=0"; export UPX
+    for csh/tcsh:      setenv UPX "-9 --compress-icons=0"
 
 Under DOS/Windows you must use '#' instead of '=' when setting the
 environment variable because of a COMMAND.COM limitation.
 
 Not all of the options are valid in the environment variable -
-UPX will tell you.
+B<UPX> will tell you.
 
 You can use the B<--no-env> option to turn this support off.
 
@@ -246,8 +273,8 @@ Extra options available for this executable format:
 
 =head2 NOTES FOR DOS/COM
 
-Obviously UPX won't work with executables that want to read data from
-themselves (like some commandline utilities that ship with Win95/98).
+Obviously B<UPX> won't work with executables that want to read data from
+themselves (like some commandline utilities that ship with Win95/98/ME).
 
 Compressed programs only work on a 286+.
 
@@ -265,8 +292,8 @@ Extra options available for this executable format:
 
 dos/exe stands for all "normal" 16-bit DOS executables.
 
-Obviously UPX won't work with executables that want to read data from
-themselves (like some command line utilities that ship with Win95/98).
+Obviously B<UPX> won't work with executables that want to read data from
+themselves (like some command line utilities that ship with Win95/98/ME).
 
 Compressed programs only work on a 286+.
 
@@ -297,23 +324,21 @@ Extra options available for this executable format:
 
 =head2 NOTES FOR DJGPP2/COFF
 
-First of all, it is recommended to use UPX *instead* of B<strip>. strip has
+First of all, it is recommended to use B<UPX> *instead* of B<strip>. strip has
 the very bad habit of replacing your stub with its own (outdated) version.
-Additionally UPX corrects a bug/feature in strip v2.8.x: it
+Additionally B<UPX> corrects a bug/feature in strip v2.8.x: it
 will fix the 4 KByte aligment of the stub.
 
-UPX includes the full functionality of stubify. This means it will
+B<UPX> includes the full functionality of stubify. This means it will
 automatically stubify your COFF files. Use the option B<--coff> to
-disable this behaviour (see below).
+disable this functionality (see below).
 
-UPX automatically handles Allegro packfiles.
+B<UPX> automatically handles Allegro packfiles.
 
 The DLM format (a rather exotic shared library extension) is not supported.
 
 Packed programs will be byte-identical to the original after uncompression.
 All debug information and trailing garbage will be stripped, though.
-
-BTW, UPX is the successor of the DJP executable packer.
 
 Extra options available for this executable format:
 
@@ -465,16 +490,12 @@ Extra options available for this executable format:
 
 =head2 NOTES FOR WATCOM/LE
 
-UPX has been successfully tested with the following extenders:
+B<UPX> has been successfully tested with the following extenders:
   DOS4G, DOS4GW, PMODE/W, DOS32a, CauseWay.
   The WDOS/X extender is partly supported (for details
   see the file bugs BUGS).
 
-Yes, you can use your compressed executables with DOS4GW.
-
-The LX format is not yet supported.
-
-DLLs are not supported.
+DLLs and the LX format are not supported.
 
 Extra options available for this executable format:
 
@@ -485,10 +506,10 @@ Extra options available for this executable format:
 
 =head2 NOTES FOR WIN32/PE
 
-The PE support in UPX is quite stable now, but definitely there are
+The PE support in B<UPX> is quite stable now, but definitely there are
 still some incompabilities with some files.
 
-Because of the way UPX (and other packers for this format) works, you
+Because of the way B<UPX> (and other packers for this format) works, you
 can see increased memory usage of your compressed files. If you start
 several instances of huge compressed programs you're wasting memory
 because the common segements of the program won't get shared
@@ -501,6 +522,10 @@ If you're running executables from network, then compressed programs
 will load faster, and require less bandwidth during execution.
 
 DLLs are supported.
+
+Screensavers are supported, with the restriction that the filename
+must end with ".scr" (as screensavers are handled slightly different
+than normal exe files).
 
 Extra options available for this executable format:
 
@@ -557,15 +582,15 @@ Please report all bugs immediately to the authors.
  Markus F.X.J. Oberhumer <markus@oberhumer.com>
  http://www.oberhumer.com
 
- Laszlo Molnar <ml1050@cdata.tvnet.hu>
+ Laszlo Molnar <ml1050@users.sourceforge.net>
 
 
 
 =head1 COPYRIGHT
 
-Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
+Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
 
-Copyright (C) 1996-2001 Laszlo Molnar
+Copyright (C) 1996-2002 Laszlo Molnar
 
 This program may be used freely, and you are welcome to
 redistribute it under certain conditions.

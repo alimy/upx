@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -74,6 +75,8 @@ void do_one_file(const char *iname, char *oname)
 #endif
     if (st.st_size <= 0)
         throwIOException("empty file -- skipped");
+    if (st.st_size >= 1024*1024*1024)
+        throwIOException("file is too large -- skipped");
     if ((st.st_mode & S_IWUSR) == 0)
     {
         bool skip = true;
@@ -102,7 +105,7 @@ void do_one_file(const char *iname, char *oname)
     {
         if (opt->to_stdout)
         {
-            if (!fo.openStdout(true, opt->force ? true : false))
+            if (!fo.openStdout(O_BINARY, opt->force ? true : false))
                 throwIOException("data not written to a terminal; Use `-f' to force.");
         }
         else
@@ -112,7 +115,7 @@ void do_one_file(const char *iname, char *oname)
                 strcpy(tname,opt->output_name);
             else
             {
-                if (!maketempname(tname,iname,".upx"))
+                if (!maketempname(tname, sizeof(tname), iname, ".upx"))
                     throwIOException("could not create a temporary file name");
             }
             if (opt->force >= 2)
@@ -149,7 +152,11 @@ void do_one_file(const char *iname, char *oname)
     }
 
     // handle command
+#if (UPX_VERSION_HEX >= 0x019000)
+    PackMaster pm(&fi, opt);
+#else
     PackMaster pm(&fi);
+#endif
     if (opt->cmd == CMD_COMPRESS)
         pm.pack(&fo);
     else if (opt->cmd == CMD_DECOMPRESS)
@@ -177,8 +184,8 @@ void do_one_file(const char *iname, char *oname)
     }
 
     // close files
-    fo.close();
-    fi.close();
+    fo.closex();
+    fi.closex();
 
     // rename or delete files
     if (oname[0] && !opt->output_name)
@@ -195,7 +202,7 @@ void do_one_file(const char *iname, char *oname)
         {
             // make backup
             char bakname[PATH_MAX+1];
-            if (!makebakname(bakname,iname))
+            if (!makebakname(bakname, sizeof(bakname), iname))
                 throwIOException("could not create a backup file name");
             File::rename(iname,bakname);
         }
@@ -258,10 +265,6 @@ void do_files(int i, int argc, char *argv[])
 
     for ( ; i < argc; i++)
     {
-#if defined(WITH_MSS)
-        //MSS_ENABLE_LOG_OUTPUT;
-        //MSS_ENTER_SCOPE;
-#endif
         infoHeader();
 
         const char *iname = argv[i];
@@ -274,6 +277,7 @@ void do_files(int i, int argc, char *argv[])
             unlink_ofile(oname);
             if (opt->verbose >= 2 || (opt->verbose >= 1 && !e.isWarning()))
                 printErr(iname,&e);
+            set_ec(e.isWarning() ? EXIT_WARN : EXIT_ERROR);
         } catch (const Error &e) {
             unlink_ofile(oname);
             printErr(iname,&e);
@@ -301,11 +305,6 @@ void do_files(int i, int argc, char *argv[])
             printUnhandledException(iname,NULL);
             e_exit(EXIT_ERROR);
         }
-
-#if defined(WITH_MSS)
-        //MSS_LEAVE_SCOPE;
-        MSS_CHECK_ALL_BLOCKS;
-#endif
     }
 
     if (opt->cmd == CMD_COMPRESS)

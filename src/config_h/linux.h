@@ -29,12 +29,6 @@
 /* Define to `long' if <stddef.h> doesn't define.  */
 /* #undef ptrdiff_t */
 
-/* The number of bytes in a ptrdiff_t.  */
-#define SIZEOF_PTRDIFF_T 4
-
-/* The number of bytes in a size_t.  */
-#define SIZEOF_SIZE_T 4
-
 /* Define when using the dmalloc package.  */
 /* #undef WITH_DMALLOC */
 
@@ -179,6 +173,9 @@
 /* Define if you have the <stddef.h> header file.  */
 #define HAVE_STDDEF_H 1
 
+/* Define if you have the <stdint.h> header file.  */
+#define HAVE_STDINT_H 1
+
 /* Define if you have the <sys/param.h> header file.  */
 #define HAVE_SYS_PARAM_H 1
 
@@ -223,14 +220,6 @@
 
 #if defined(HAVE_SYS_TIMES_H) && !defined(TIME_WITH_SYS_TIME)
 #  undef /**/ HAVE_SYS_TIMES_H
-#endif
-
-#if (SIZEOF_PTRDIFF_T <= 0)
-#  undef /**/ SIZEOF_PTRDIFF_T
-#endif
-
-#if (SIZEOF_SIZE_T <= 0)
-#  undef /**/ SIZEOF_SIZE_T
 #endif
 
 #endif /* already included */

@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -104,6 +105,13 @@ void throwAlreadyPacked(const char *msg)
     throw AlreadyPackedException(msg);
 }
 
+void throwAlreadyPackedByUPX(const char *msg)
+{
+    if (msg == NULL)
+        msg = "already packed by UPX";
+    throwAlreadyPacked(msg);
+}
+
 
 /*************************************************************************
 // decompression
@@ -150,7 +158,15 @@ void throwBadLoader()
 
 void throwIOException(const char *msg, int e)
 {
-    throw IOException(msg,e);
+    throw IOException(msg, e);
+}
+
+
+void throwEOFException(const char *msg, int e)
+{
+    if (msg == NULL && e == 0)
+        msg = "premature end of file";
+    throw EOFException(msg, e);
 }
 
 
@@ -160,16 +176,16 @@ void throwIOException(const char *msg, int e)
 
 const char *prettyName(const char *n)
 {
-    if (!n)
+    if (n == NULL)
         return "";
-    while (*n >= '0' && *n <= '9')          // gcc / egcs
+    while (*n >= '0' && *n <= '9')              // gcc
         n++;
-    if (strncmp(n, "class ", 6) == 0)       // Visual C++
+    if (strncmp(n, "class ", 6) == 0)           // Visual C++
         n += 6;
     return n;
 }
 
-const char *prettyName(const type_info &ti)
+const char *prettyName(const std::type_info &ti)
 {
     return prettyName(ti.name());
 }

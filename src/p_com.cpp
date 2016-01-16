@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -75,7 +76,7 @@ bool PackCom::canPack()
         return false;
     if (!fn_has_ext(fi->getName(),"com"))
         return false;
-    if (find_le32(buf, sizeof(buf), UPX_MAGIC_LE32))
+    if (pfind_le32(buf, sizeof(buf), UPX_MAGIC_LE32))
         throwAlreadyPacked();
     if (file_size < 1024)
         throwCantPack("file is too small");
@@ -135,6 +136,9 @@ int PackCom::buildLoader(const Filter *ft)
     const int filter_id = ft->id;
     initLoader(nrv2b_loader,sizeof(nrv2b_loader));
     addLoader("COMMAIN1""COMSUBSI",
+              //ph.first_offset_found == 1 ? "COMSBBBP" : "",
+              "COMSBBBP",
+              "COMPSHDI",
               filter_id ? "COMCALLT" : "",
               "COMMAIN2""UPX1HEAD""COMCUTPO""NRV2B160",
               filter_id ? "NRVDDONE" : "NRVDRETU",

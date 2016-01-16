@@ -4,8 +4,8 @@
 #
 #  This file is part of the UPX executable compressor.
 #
-#  Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-#  Copyright (C) 1996-2001 Laszlo Molnar
+#  Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+#  Copyright (C) 1996-2002 Laszlo Molnar
 #  All Rights Reserved.
 #
 #  UPX and the UCL library are free software; you can redistribute them
@@ -23,8 +23,8 @@
 #  If not, write to the Free Software Foundation, Inc.,
 #  59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #
-#  Markus F.X.J. Oberhumer   Laszlo Molnar
-#  markus@oberhumer.com      ml1050@cdata.tvnet.hu
+#  Markus F.X.J. Oberhumer              Laszlo Molnar
+#  <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
 #
 
 
@@ -41,17 +41,33 @@ $ofile = shift || die;
 $opt_q = "";
 $opt_q = shift if ($#ARGV >= 0);
 
-open(INFILE,$ifile) || die "$ifile\n";
+# open ifile
+open(INFILE,$ifile) || die "open $ifile\n";
 binmode(INFILE);
-open(OUTFILE,">$ofile") || die "$ofile\n";
-binmode(OUTFILE);
+
+# check file size
+@st = stat($ifile);
+if (1 && $st[7] <= 0) {
+    print STDERR "$ifile: ERROR: emtpy file\n";
+    exit(1);
+}
+if (1 && $st[7] > 64*1024) {
+    print STDERR "$ifile: ERROR: file is too big (${st[7]} bytes)\n";
+    if ($ifile =~ /^fold/) {
+        print STDERR "  (please upgrade your binutils to 2.12.90.0.15 or better)\n";
+    }
+    exit(1);
+}
 
 # read whole file
 $data = <INFILE>;
-close(INFILE);
+close(INFILE) || die;
 $n = length($data);
+die if ($n != $st[7]);
 
-# print
+# open ofile
+open(OUTFILE,">$ofile") || die "open $ofile\n";
+binmode(OUTFILE);
 select(OUTFILE);
 
 $if = $ifile;
@@ -65,8 +81,8 @@ print <<"EOF";
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -84,8 +100,8 @@ print <<"EOF";
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer   Laszlo Molnar
-   markus\@oberhumer.com      ml1050\@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx\@users.sourceforge.net>          <ml1050\@users.sourceforge.net>
  */
 
 

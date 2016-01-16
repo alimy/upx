@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -57,6 +58,8 @@ int PackExe::getCompressionMethod() const
         return M_NRV2B_8;
     if (M_IS_NRV2D(opt->method))
         return M_NRV2D_8;
+    if (M_IS_NRV2E(opt->method))
+        return M_NRV2E_8;
     return opt->level > 1 && ih_imagesize >= 300000 ? M_NRV2D_8 : M_NRV2B_8;
 }
 
@@ -125,7 +128,7 @@ unsigned optimize_relocs(upx_byte *b, const unsigned size,
                          const upx_byte *relocs, const unsigned nrelocs,
                          upx_byte *crel, bool *has_9a)
 {
-    upx_byte *crel_save = crel;
+    upx_byte * const crel_save = crel;
     unsigned i;
     unsigned seg_high = 0;
 #if 0
@@ -231,14 +234,7 @@ unsigned optimize_relocs(upx_byte *b, const unsigned size,
     set_le16 (crel_save,ones);
     set_le16 (crel_save+2,seg_high);
 
-#if 0 // def TESTING
-    //if (opt->debug >= 3)
-    {
-        FILE *f1=fopen ("x.rel","wb");
-        fwrite (crel_save,crel-crel_save,1,f1);
-        fclose (f1);
-    }
-#endif
+    //OutputFile::dump("x.rel", crel_save, crel - crel_save);
     return crel - crel_save;
 }
 
@@ -272,7 +268,7 @@ void PackExe::pack(OutputFile *fo)
     fi->seek(ih.headsize16*16,SEEK_SET);
     fi->readx(ibuf,imagesize);
 
-    if (find_le32(ibuf,UPX_MIN(imagesize,128u),UPX_MAGIC_LE32))
+    if (pfind_le32(ibuf,UPX_MIN(imagesize,128u),UPX_MAGIC_LE32))
         throwAlreadyPacked();
 
     // relocations
@@ -370,26 +366,38 @@ void PackExe::pack(OutputFile *fo)
              );
     if (ph.method == M_NRV2B_8)
         addLoader("NRV2B16S",               // decompressor
-                  ph.u_len > DI_LIMIT ? "NDIGT64K" : "",
+                  ph.u_len > DI_LIMIT ? "N2B64K01" : "",
                   "NRV2BEX1",
                   opt->cpu == opt->CPU_8086 ? "N2BX8601" : "N2B28601",
                   "NRV2BEX2",
                   opt->cpu == opt->CPU_8086 ? "N2BX8602" : "N2B28602",
                   "NRV2BEX3",
-                  packedsize > 0xffff ? "NSIGT64K" : "",
+                  packedsize > 0xffff ? "N2B64K02" : "",
                   "NRV2BEX9""NRV2B16E",
                   NULL
                  );
     else if (ph.method == M_NRV2D_8)
         addLoader("NRV2D16S",
-                  ph.u_len > DI_LIMIT ? "NDIGT64D" : "",
+                  ph.u_len > DI_LIMIT ? "N2D64K01" : "",
                   "NRV2DEX1",
                   opt->cpu == opt->CPU_8086 ? "N2DX8601" : "N2D28601",
                   "NRV2DEX2",
                   opt->cpu == opt->CPU_8086 ? "N2DX8602" : "N2D28602",
                   "NRV2DEX3",
-                  packedsize > 0xffff ? "NSIGT64D" : "",
+                  packedsize > 0xffff ? "N2D64K02" : "",
                   "NRV2DEX9""NRV2D16E",
+                  NULL
+                 );
+    else if (ph.method == M_NRV2E_8)
+        addLoader("NRV2E16S",
+                  ph.u_len > DI_LIMIT ? "N2E64K01" : "",
+                  "NRV2EEX1",
+                  opt->cpu == opt->CPU_8086 ? "N2EX8601" : "N2E28601",
+                  "NRV2EEX2",
+                  opt->cpu == opt->CPU_8086 ? "N2EX8602" : "N2E28602",
+                  "NRV2EEX3",
+                  packedsize > 0xffff ? "N2E64K02" : "",
+                  "NRV2EEX9""NRV2E16E",
                   NULL
                  );
     else
@@ -460,7 +468,7 @@ void PackExe::pack(OutputFile *fo)
     upx_bytep ipcs = NULL;
     if (flag & USEJUMP)
     {
-        ipcs = find_le32(loader,lsize,get_le32("IPCS"));
+        ipcs = pfind_le32(loader,lsize,get_le32("IPCS"));
         if (ipcs == NULL)
             throwBadLoader();
         patch_le32(loader,lsize,get_le32("IPCS"), ih.cs*0x10000 + ih.ip);

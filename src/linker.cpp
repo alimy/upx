@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -29,7 +30,7 @@
 #include "linker.h"
 
 
-struct Linker::section
+struct Linker__section
 {
     int  istart;
     int  ostart;
@@ -37,7 +38,7 @@ struct Linker::section
     char name[8];
 };
 
-struct Linker::jump
+struct Linker__jump
 {
     int  pos;
     int  len;
@@ -55,8 +56,8 @@ Linker::Linker(const void *pdata, int plen, int pinfo)
     align_hack = 0;
     info = pinfo;
     njumps = nsections = frozen = 0;
-    jumps = new jump[200];
-    sections = new section[200];
+    jumps = new Linker__jump[200];
+    sections = new Linker__section[200];
 
     char *p = iloader + info;
     while (get_le32(p) != (unsigned)(-1))
@@ -174,7 +175,14 @@ const char *Linker::getLoader(int *llen)
                  sections[jc].istart+sections[jc].ostart);
 
             if (jumps[ic].len == 1)
+            {
+#if 0
+                printf("jump: %4d\n", offs);
+                if (!(-128 <= offs && offs <= 127))
+                    printf("jump out of range %d\n", offs);
+#endif
                 assert(-128 <= offs && offs <= 127);
+            }
 
             set_le32(&offs,offs);
             memcpy(oloader+sections[jc].ostart+jumps[ic].pos-sections[jc].istart,&offs,jumps[ic].len);

@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2001 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2001 Laszlo Molnar
+   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2002 Laszlo Molnar
+   All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
    and/or modify them under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer                   Laszlo Molnar
-   markus.oberhumer@jk.uni-linz.ac.at        ml1050@cdata.tvnet.hu
+   Markus F.X.J. Oberhumer              Laszlo Molnar
+   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
  */
 
 
@@ -48,12 +49,33 @@ static const
 // It would be better to use inner classes except for Interval, which
 // could be used elsewhere too.
 
-#define Interval        PackW32Pe_Interval
-#define Reloc           PackW32Pe_Reloc
-#define Resource        PackW32Pe_Resource
-#define import_desc     PackW32Pe_import_desc
-#define Export          PackW32Pe_Export
-#define tls             PackW32Pe_tls
+#define Interval        PackW32Pe__Interval
+#define Reloc           PackW32Pe__Reloc
+#define Resource        PackW32Pe__Resource
+#define import_desc     PackW32Pe__import_desc
+#define Export          PackW32Pe__Export
+#define tls             PackW32Pe__tls
+
+
+/*************************************************************************
+//
+**************************************************************************/
+
+#if defined(__BORLANDC__)
+#  undef strcpy
+#  define strcpy(a,b)   std::strcpy((char *)(a),(const char *)(b))
+#endif
+
+
+// Unicode string compare
+static bool ustrsame(const void *s1, const void *s2)
+{
+    unsigned len1 = get_le16(s1);
+    unsigned len2 = get_le16(s2);
+    if (len1 != len2)
+        return false;
+    return memcmp(s1, s2, 2 + 2*len1) == 0;
+}
 
 
 /*************************************************************************
@@ -67,16 +89,15 @@ PackW32Pe::PackW32Pe(InputFile *f) : super(f)
     COMPILE_TIME_ASSERT(sizeof(pe_header_t) == 248);
     COMPILE_TIME_ASSERT(sizeof(pe_section_t) == 40);
     COMPILE_TIME_ASSERT(RT_LAST == HIGH(opt->w32pe.compress_rt));
-#if defined(WITH_NRV)
+
     // Make sure that we use a "blessed" stub for the official builds, so
     // that we don't get problems with braindead virus scanners/monitors.
     //printf("0x%08x\n", upx_adler32(nrv_loader, sizeof(nrv_loader)));
-    COMPILE_TIME_ASSERT(sizeof(nrv_loader) == 3102);
-    COMPILE_TIME_ASSERT(NRV_LOADER_ADLER32 == 0x515cfd59);
-    COMPILE_TIME_ASSERT(NRV_LOADER_CRC32 == 0xd7014036);
+    COMPILE_TIME_ASSERT(sizeof(nrv_loader) == 3966);
+    COMPILE_TIME_ASSERT(NRV_LOADER_ADLER32 == 0x80fbd47f);
+    COMPILE_TIME_ASSERT(NRV_LOADER_CRC32 == 0x2a66725a);
     assert(upx_adler32(nrv_loader, sizeof(nrv_loader)) == NRV_LOADER_ADLER32);
     //assert(upx_crc32(nrv_loader, sizeof(nrv_loader)) == NRV_LOADER_CRC32);
-#endif
 
     isection = NULL;
     oimport = NULL;
@@ -114,6 +135,8 @@ int PackW32Pe::getCompressionMethod() const
         return M_NRV2B_LE32;
     if (M_IS_NRV2D(opt->method))
         return M_NRV2D_LE32;
+    if (M_IS_NRV2E(opt->method))
+        return M_NRV2E_LE32;
     return opt->level > 1 && ih.codesize + ih.datasize >= 256*1024 ? M_NRV2D_LE32 : M_NRV2B_LE32;
 }
 
@@ -132,7 +155,7 @@ const int *PackW32Pe::getFilters() const
 
 bool PackW32Pe::readFileHeader()
 {
-    struct h_t
+    struct exe_header_t
     {
         LE16 mz;
         LE16 m512;
@@ -143,9 +166,9 @@ bool PackW32Pe::readFileHeader()
         LE32 nexepos;
     }
     __attribute_packed;
-    COMPILE_TIME_ASSERT(sizeof(h_t) == 64);
+    COMPILE_TIME_ASSERT(sizeof(exe_header_t) == 64);
 
-    h_t h;
+    exe_header_t h;
     int ic;
     pe_offset = 0;
 
@@ -304,6 +327,7 @@ public:
 
 Reloc::Reloc(upx_byte *s,unsigned si) : start(s), size(si), rel(0)
 {
+    COMPILE_TIME_ASSERT(sizeof(reloc) == 8);
     memset(counts,0,sizeof(counts));
     unsigned pos,type;
     while (next(pos,type))
@@ -352,7 +376,7 @@ void Reloc::finish(upx_byte *&p,unsigned &siz)
             prev = pos;
             *rel1 = 0;
             rel->size = ALIGN_UP(ptr_diff(rel1,rel),4);
-            newRelocPos(rel->size + (char*) rel);
+            newRelocPos((char *)rel + rel->size);
             rel->pagestart = (pos >> 4) &~ 0xfff;
         }
         *rel1++ = (pos << 12) + ((pos >> 4) & 0xfff);
@@ -447,6 +471,8 @@ __attribute_packed;
 
 void PackW32Pe::processImports(unsigned myimport) // pass 2
 {
+    COMPILE_TIME_ASSERT(sizeof(import_desc) == 20);
+
     // adjust import data
     for (import_desc *im = (import_desc*) oimpdlls; im->dllname; im++)
     {
@@ -463,7 +489,7 @@ void PackW32Pe::processImports(unsigned myimport) // pass 2
 
 unsigned PackW32Pe::processImports() // pass 1
 {
-    static const upx_byte kernel32dll[] = "KERNEL32.DLL";
+    static const unsigned char kernel32dll[] = "KERNEL32.DLL";
     static const char llgpa[] = "\x0\x0""LoadLibraryA\x0\x0""GetProcAddress\x0\x0";
     static const char exitp[] = "ExitProcess\x0\x0\x0";
 
@@ -502,7 +528,9 @@ unsigned PackW32Pe::processImports() // pass 1
             if (!u2->shname) return -1;
             return strlen(u1->shname) - strlen(u2->shname);
         }
-    } *dlls, **idlls;
+    };
+    struct udll *dlls;
+    struct udll **idlls;
 
     soimport = 1024; // safety
     dlls = new udll[dllnum+1];  // +1 for dllnum=0
@@ -692,10 +720,10 @@ unsigned PackW32Pe::processImports() // pass 1
 #endif
         // do some work for the unpacker
         im = im_save;
-        for (ic = 0; ic < dllnum; ic++)
+        for (ic = 0; ic < dllnum; ic++, im++)
         {
             memset(im,FILLVAL,sizeof(*im));
-            im++->dllname = ptr_diff(idlls[ic]->name,ibuf); // I only need this info
+            im->dllname = ptr_diff(idlls[ic]->name,ibuf); // I only need this info
         }
     }
     else
@@ -727,7 +755,7 @@ unsigned PackW32Pe::processImports() // pass 1
 
 class Export
 {
-    struct export_dir
+    struct export_dir_t
     {
         char  _[12]; // flags, timedate, version
         LE32  name;
@@ -737,9 +765,10 @@ class Export
         LE32  addrtable;
         LE32  nameptrtable;
         LE32  ordinaltable;
-    };
+    }
+    __attribute_packed;
 
-    export_dir edir;
+    export_dir_t edir;
     char  *ename;
     char  *functionptrs;
     char  *ordinals;
@@ -758,14 +787,16 @@ public:
     unsigned getsize() const { return size; }
 
 private:
+    // disable copy and assignment
     Export(const Export&);
     Export& operator=(const Export&);
 };
 
 Export::Export(char *_base) : base(_base), iv(_base)
 {
-    ename = functionptrs = ordinals = 0;
-    names = 0;
+    COMPILE_TIME_ASSERT(sizeof(export_dir_t) == 40);
+    ename = functionptrs = ordinals = NULL;
+    names = NULL;
     memset(&edir,0,sizeof(edir));
     size = 0;
 }
@@ -782,8 +813,8 @@ Export::~Export()
 
 void Export::convert(unsigned eoffs,unsigned esize)
 {
-    memcpy(&edir,base + eoffs,sizeof(export_dir));
-    size = sizeof(export_dir);
+    memcpy(&edir,base + eoffs,sizeof(export_dir_t));
+    size = sizeof(export_dir_t);
     iv.add(eoffs,size);
 
     unsigned len = strlen(base + edir.name) + 1;
@@ -822,7 +853,7 @@ void Export::convert(unsigned eoffs,unsigned esize)
             names[ic + edir.names] = strdup(forw);
         }
         else
-            names[ic + edir.names] = 0;
+            names[ic + edir.names] = NULL;
 
     len = 2 * edir.names;
     ordinals = new char[len + 1];
@@ -923,6 +954,8 @@ __attribute_packed;
 
 void PackW32Pe::processTls(Interval *iv) // pass 1
 {
+    COMPILE_TIME_ASSERT(sizeof(tls) == 24);
+
     if ((sotls = ALIGN_UP(IDSIZE(PEDIR_TLS),4)) == 0)
         return;
 
@@ -1059,13 +1092,13 @@ class Resource
     void destroy(upx_rnode *urd,unsigned level);
 
 public:
-    Resource() : root(0) {}
+    Resource() : root(NULL) {}
     Resource(const upx_byte *p) {init(p);}
     ~Resource() {if (root) destroy (root,0);}
     void init(const upx_byte *);
 
     unsigned dirsize() const {return ALIGN_UP(dsize + ssize,4);}
-    bool next() {return (current = current ? current->next : head) != 0;} // wow, builtin autorewind... :-)
+    bool next() {return (current = current ? current->next : head) != NULL;} // wow, builtin autorewind... :-)
 
     unsigned itype() const {return current->parent->parent->id;}
     const upx_byte *ntype() const {return current->parent->parent->name;}
@@ -1088,11 +1121,15 @@ public:
 
 void Resource::init(const upx_byte *res)
 {
+    COMPILE_TIME_ASSERT(sizeof(res_dir_entry) == 8);
+    COMPILE_TIME_ASSERT(sizeof(res_dir) == 16 + sizeof(res_dir_entry));
+    COMPILE_TIME_ASSERT(sizeof(res_data) == 16);
+
     start = res;
-    root = head = current = 0;
+    root = head = current = NULL;
     dsize = ssize = 0;
     check((const res_dir*) start,0);
-    root = convert(start,0,0);
+    root = convert(start,NULL,0);
 }
 
 void Resource::check(const res_dir *node,unsigned level)
@@ -1116,7 +1153,7 @@ Resource::upx_rnode *Resource::convert(const void *rnode,upx_rnode *parent,unsig
     {
         const res_data *node = (const res_data *) rnode;
         upx_rleaf *leaf = new upx_rleaf;
-        leaf->name = 0;
+        leaf->name = NULL;
         leaf->parent = parent;
         leaf->next = head;
         leaf->newoffset = 0;
@@ -1129,7 +1166,7 @@ Resource::upx_rnode *Resource::convert(const void *rnode,upx_rnode *parent,unsig
 
     const res_dir *node = (const res_dir *) rnode;
     upx_rbranch *branch = new upx_rbranch;
-    branch->name = 0;
+    branch->name = NULL;
     branch->parent = parent;
     int ic = branch->nc = node->identr + node->namedentr;
     branch->children = new upx_rnode*[ic];
@@ -1338,9 +1375,13 @@ void PackW32Pe::processResources(Resource *res)
         else if (rtype > 0 && rtype < RT_LAST)
             do_compress = opt->w32pe.compress_rt[rtype] ? true : false;
         else if (res->ntype())              // named resource type
-            if (0 == memcmp(res->ntype(),"\x7\x0T\x0Y\x0P\x0""E\x0L\x0I\x0""B\x0",16)
-                || 0 == memcmp(res->ntype(),"\x8\x0R\x0""E\x0G\x0I\x0S\x0T\x0R\x0Y\x0",18))
-                do_compress = false;        // typelib or registry
+        {
+            const upx_byte * const t = res->ntype();
+            if (ustrsame(t, "\x7\x0T\x0Y\x0P\x0""E\x0L\x0I\x0""B\x0"))
+                do_compress = false;        // u"TYPELIB"
+            else if (ustrsame(t, "\x8\x0R\x0""E\x0G\x0I\x0S\x0T\x0R\x0Y\x0"))
+                do_compress = false;        // u"REGISTRY"
+        }
 
         if (do_compress)
         {
@@ -1740,7 +1781,7 @@ void PackW32Pe::pack(OutputFile *fo)
     if (ih.entry)
     {
         unsigned jmp_pos;
-        jmp_pos = ptr_diff(find_le32(loader,codesize + 4,get_le32("JMPO")),loader);
+        jmp_pos = ptr_diff(pfind_le32(loader,codesize + 4,get_le32("JMPO")),loader);
         patch_le32(loader,codesize + 4,"JMPO",ih.entry - upxsection - jmp_pos - 4);
     }
     if (big & 6)
@@ -1982,18 +2023,19 @@ bool PackW32Pe::canUnpack()
     if (is_packed && ih.entry < isection[2].vaddr)
     {
         unsigned char buf[256];
-        memset(buf, 0, sizeof(buf));
+        unsigned char *p;
         bool x = false;
 
+        memset(buf, 0, sizeof(buf));
         try {
             fi->seek(ih.entry - isection[1].vaddr + isection[1].rawdataptr, SEEK_SET);
             fi->read(buf, sizeof(buf));
 
-            static const char magic[] = "\x8b\x1e\x83\xee\xfc\x11\xdb";
+            static const unsigned char magic[] = "\x8b\x1e\x83\xee\xfc\x11\xdb";
             // mov ebx, [esi];    sub esi, -4;    adc ebx,ebx
 
-            unsigned char *p = find(buf, sizeof(buf), magic, 7);
-            if (p && find(p + 1, buf - p + sizeof(buf) - 1, magic, 7))
+            p = pfind(buf, sizeof(buf), magic, 7);
+            if (p && pfind(p + 1, ptr_diff(buf + sizeof(buf) - 1, p), magic, 7))
                 x = true;
         } catch (...) {
             //x = true;
@@ -2241,7 +2283,7 @@ void PackW32Pe::unpack(OutputFile *fo)
 
     // read the noncompressed section
     delete [] ibuf;
-    ibuf = new upx_byte[isection[2].size];
+    ibuf = new upx_byte[(unsigned) (isection[2].size)];
     fi->seek(isection[2].rawdataptr,SEEK_SET);
     fi->readx(ibuf,isection[2].size);
 
@@ -2288,7 +2330,7 @@ void PackW32Pe::unpack(OutputFile *fo)
     if (fo)
     {
         delete [] ibuf;
-        ibuf = new upx_byte [osection[0].rawdataptr];
+        ibuf = new upx_byte [(unsigned) (osection[0].rawdataptr)];
         memset(ibuf,0,osection[0].rawdataptr);
         infoHeader("[Writing uncompressed file]");
 
