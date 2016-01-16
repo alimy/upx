@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,9 +21,10 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   Markus F.X.J. Oberhumer   Laszlo Molnar
+   markus@oberhumer.com      ml1050@users.sourceforge.net
  */
+
 
 #include "conf.h"
 #include "file.h"
@@ -47,31 +48,63 @@ PackTmt::PackTmt(InputFile *f) : super(f)
 }
 
 
-int PackTmt::getCompressionMethod() const
+const int *PackTmt::getCompressionMethods(int method, int level) const
 {
-    if (M_IS_NRV2B(opt->method))
-        return M_NRV2B_LE32;
-    if (M_IS_NRV2D(opt->method))
-        return M_NRV2D_LE32;
-    if (M_IS_NRV2E(opt->method))
-        return M_NRV2E_LE32;
-    return opt->level > 1 && file_size >= 512*1024 ? M_NRV2D_LE32 : M_NRV2B_LE32;
+    return Packer::getDefaultCompressionMethods_le32(method, level);
 }
 
 
 const int *PackTmt::getFilters() const
 {
-    static const int filters[] = { 0x26, 0x24, 0x11, 0x14, 0x13, 0x16,
-                                   0x25, 0x12, 0x15, -1 };
+    static const int filters[] = {
+        0x26, 0x24, 0x11, 0x14, 0x13, 0x16, 0x25, 0x12, 0x15,
+    -1 };
     return filters;
 }
 
 
+unsigned PackTmt::findOverlapOverhead(const upx_bytep buf,
+                                      unsigned range,
+                                      unsigned upper_limit) const
+{
+    // make sure the decompressor will be paragraph aligned
+    unsigned o = super::findOverlapOverhead(buf, range, upper_limit);
+    o = ((o + 0x20) &~ 0xf) - (ph.u_len & 0xf);
+    return o;
+}
+
+
+int PackTmt::buildLoader(const Filter *ft)
+{
+    // prepare loader
+    initLoader(nrv_loader,sizeof(nrv_loader));
+    addLoader("IDENTSTR,TMTMAIN1",
+              ft->id ? "TMTCALT1" : "",
+              "TMTMAIN2,UPX1HEAD,TMTCUTPO,+0XXXXXX",
+              getDecompressor(),
+              "TMTMAIN5",
+              NULL
+             );
+    if (ft->id)
+    {
+        assert(ft->calls > 0);
+        addLoader("TMTCALT2",NULL);
+        addFilter32(ft->id);
+    }
+    addLoader("TMTRELOC,RELOC320",
+              big_relocs ? "REL32BIG" : "",
+              "RELOC32J,TMTJUMP1",
+              NULL
+             );
+    return getLoaderSize();
+}
+
+
 /*************************************************************************
-// util
+//
 **************************************************************************/
 
-bool PackTmt::readFileHeader()
+int PackTmt::readFileHeader()
 {
 #define H(x)  get_le16(h+2*(x))
 #define H4(x) get_le32(h+(x))
@@ -119,14 +152,16 @@ bool PackTmt::readFileHeader()
         else if (memcmp(h,"Adam",4) == 0)
             break;
         else
-            return false;
+            return 0;
     }
     if (ic == 20)
-        return false;
+        return 0;
+
     fi->seek(adam_offset,SEEK_SET);
     fi->readx(&ih,sizeof(ih));
+    // FIXME: should add some checks for the values in `ih'
 
-    return true;
+    return UPX_F_TMT_ADAM;
 #undef H4
 #undef H
 }
@@ -134,7 +169,9 @@ bool PackTmt::readFileHeader()
 
 bool PackTmt::canPack()
 {
-    return PackTmt::readFileHeader();
+    if (!readFileHeader())
+        return false;
+    return true;
 }
 
 
@@ -144,21 +181,25 @@ bool PackTmt::canPack()
 
 void PackTmt::pack(OutputFile *fo)
 {
+    big_relocs = 0;
+
     Packer::handleStub(fi,fo,adam_offset);
 
     const unsigned usize = ih.imagesize;
     const unsigned rsize = ih.relocsize;
 
-    ibuf = new upx_byte[usize+rsize+128];
-    obuf = new upx_byte[usize+usize/8+256];
-    wrkmem = new upx_byte[rsize+EXTRA_INFO]; // relocations
+    ibuf.alloc(usize+rsize+128);
+    obuf.allocForCompression(usize+rsize+128);
+
+    MemBuffer wrkmem;
+    wrkmem.alloc(rsize+EXTRA_INFO); // relocations
 
     fi->seek(adam_offset+sizeof(ih),SEEK_SET);
     fi->readx(ibuf,usize);
     fi->readx(wrkmem+4,rsize);
     const unsigned overlay = file_size - fi->tell();
 
-    if (pfind_le32(ibuf,128,get_le32("UPX ")))
+    if (find_le32(ibuf,128,get_le32("UPX ")) >= 0)
         throwAlreadyPacked();
     if (rsize == 0)
         throwCantPack("file is already compressed with another packer");
@@ -166,17 +207,12 @@ void PackTmt::pack(OutputFile *fo)
     checkOverlay(overlay);
 
     unsigned relocsize = 0;
-    int big;
     //if (rsize)
     {
         for (unsigned ic=4; ic<=rsize; ic+=4)
             set_le32(wrkmem+ic,get_le32(wrkmem+ic)-4);
-        relocsize = optimizeReloc32(wrkmem+4,rsize/4,wrkmem,ibuf,1,&big)-wrkmem;
+        relocsize = ptr_diff(optimizeReloc32(wrkmem+4,rsize/4,wrkmem,ibuf,1,&big_relocs), wrkmem);
     }
-
-    // filter
-    Filter ft(opt->level);
-    tryFilters(&ft, ibuf, usize);
 
     wrkmem[relocsize++] = 0;
     set_le32(wrkmem+relocsize,ih.entry); // save original entry point
@@ -185,69 +221,36 @@ void PackTmt::pack(OutputFile *fo)
     relocsize += 4;
     memcpy(ibuf+usize,wrkmem,relocsize);
 
-    ph.filter = ft.id;
-    ph.filter_cto = ft.cto;
-    ph.u_len = usize+relocsize;
-    if (!compress(ibuf,obuf))
-        throwNotCompressible();
-    // make sure the decompressor will be paragraph aligned
-    const unsigned overlapoh = ((findOverlapOverhead(obuf,ibuf,512)+0x20)
-                                &~ 0xf) - (ph.u_len & 0xf);
-
-    // verify filter
-    ft.verifyUnfilter();
-
-    // prepare loader
-    initLoader(nrv_loader,sizeof(nrv_loader));
-    addLoader("IDENTSTR""TMTMAIN1",
-              ft.id ? "TMTCALT1" : "",
-              "TMTMAIN2""UPX1HEAD""TMTCUTPO""+0XXXXXX",
-              getDecompressor(),
-              "TMTMAIN5",
-              NULL
-             );
-    if (ft.id)
-    {
-        assert(ft.calls > 0);
-        addLoader("TMTCALT2",NULL);
-        addFilter32(ft.id);
-    }
-    addLoader("TMTRELOC""RELOC320",
-              big ? "REL32BIG" : "",
-              "RELOC32J""TMTJUMP1",
-              NULL
-             );
+    // prepare packheader
+    ph.u_len = usize + relocsize;
+    // prepare filter
+    Filter ft(ph.level);
+    ft.buf_len = usize;
+    // compress
+    compressWithFilters(&ft, 512);
 
     const unsigned lsize = getLoaderSize();
-    loader = new upx_byte[lsize];
+    MemBuffer loader(lsize);
     memcpy(loader,getLoader(),lsize);
 
     const unsigned s_point = getLoaderSection("TMTMAIN1");
-    int e_len = getLoaderSection("TMTCUTPO");
+    int e_len = getLoaderSectionStart("TMTCUTPO");
     const unsigned d_len = lsize - e_len;
     assert(e_len > 0  && s_point > 0);
 
     // patch loader
-    patch_le32(loader,lsize,"JMPO",ih.entry-(ph.u_len+overlapoh+d_len));
+    patch_le32(loader,lsize,"JMPO",ih.entry-(ph.u_len+ph.overlap_overhead+d_len));
+    patchFilter32(loader, lsize, &ft);
+    patchPackHeader(loader,e_len);
 
-    if (ft.id)
-    {
-        assert(ft.calls > 0);
-        if (ft.id > 0x20)
-            patch_le16(loader,lsize,"??",'?'+(ph.filter_cto << 8));
-        patch_le32(loader,lsize,"TEXL",(ft.id & 0xf) % 3 == 0 ? ft.calls :
-                   ft.lastcall - ft.calls * 4);
-    }
-    unsigned jmp_pos;
-    jmp_pos = pfind_le32(loader,e_len,get_le32("JMPD")) - loader;
-    patch_le32(loader,e_len,"JMPD",ph.u_len+overlapoh-jmp_pos-4);
+    const unsigned jmp_pos = find_le32(loader,e_len,get_le32("JMPD"));
+    patch_le32(loader,e_len,"JMPD",ph.u_len+ph.overlap_overhead-jmp_pos-4);
 
     patch_le32(loader,e_len,"ECX0",ph.c_len+d_len);
-    patch_le32(loader,e_len,"EDI0",ph.u_len+overlapoh+d_len-1);
+    patch_le32(loader,e_len,"EDI0",ph.u_len+ph.overlap_overhead+d_len-1);
     patch_le32(loader,e_len,"ESI0",ph.c_len+e_len+d_len-1);
-    putPackHeader(loader,e_len);
     //fprintf(stderr,"\nelen=%x dlen=%x copy_len=%x  copy_to=%x  oo=%x  jmp_pos=%x  ulen=%x  clen=%x \n\n",
-    //                e_len,d_len,copy_len,copy_to,overlapoh,jmp_pos,ph.u_len,ph.c_len);
+    //                e_len,d_len,copy_len,copy_to,ph.overlap_overhead,jmp_pos,ph.u_len,ph.c_len);
 
     memcpy(&oh,&ih,sizeof(oh));
     oh.imagesize = ph.c_len+e_len+d_len; // new size
@@ -263,16 +266,24 @@ void PackTmt::pack(OutputFile *fo)
     set_le32(rel_entry,5 + s_point);
     fo->write(rel_entry,sizeof (rel_entry));
 
+    // verify
+    verifyOverlappingDecompression();
+
     // copy the overlay
-    copyOverlay(fo, overlay, obuf, ph.u_len);
+    copyOverlay(fo, overlay, &obuf);
+
+    // finally check the compression ratio
+    if (!checkFinalCompressionRatio(fo))
+        throwNotCompressible();
 }
 
 
-bool PackTmt::canUnpack()
+int PackTmt::canUnpack()
 {
-    if (!PackTmt::readFileHeader())
+    if (!readFileHeader())
         return false;
-    return readPackHeader(512,adam_offset);
+    fi->seek(adam_offset, SEEK_SET);
+    return readPackHeader(512) ? 1 : -1;
 }
 
 
@@ -280,8 +291,8 @@ void PackTmt::unpack(OutputFile *fo)
 {
     Packer::handleStub(fi,fo,adam_offset);
 
-    ibuf = new upx_byte[ph.c_len];
-    obuf = new upx_byte[ph.u_len + 512];    // 512 safety bytes
+    ibuf.alloc(ph.c_len);
+    obuf.allocForUncompression(ph.u_len);
 
     fi->seek(adam_offset + ph.buf_offset + ph.getPackHeaderSize(),SEEK_SET);
     fi->readx(ibuf,ph.c_len);
@@ -300,10 +311,12 @@ void PackTmt::unpack(OutputFile *fo)
         Filter ft(ph.level);
         ft.init(ph.filter, 0);
         ft.cto = (unsigned char) (ph.version < 11 ? (get_le32(obuf+ph.u_len-12) >> 24) : ph.filter_cto);
-        ft.unfilter(obuf, relocs-obuf);
+        ft.unfilter(obuf, ptr_diff(relocs, obuf));
     }
 
-    unsigned relocn = unoptimizeReloc32(&relocs,obuf,NULL,1);
+    // decode relocations
+    MemBuffer wrkmem;
+    unsigned relocn = unoptimizeReloc32(&relocs,obuf,&wrkmem,1);
     for (unsigned ic = 0; ic < relocn; ic++)
         set_le32(wrkmem+ic*4,get_le32(wrkmem+ic*4)+4);
 
@@ -325,7 +338,7 @@ void PackTmt::unpack(OutputFile *fo)
     }
 
     // copy the overlay
-    copyOverlay(fo, overlay, obuf, ph.u_len);
+    copyOverlay(fo, overlay, &obuf);
 }
 
 

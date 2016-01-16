@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2006 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -47,9 +47,9 @@ void show_head(void)
 #define V(x)    (strcmp(UPX_VERSION_STRING, UPX_VERSION_STRING4) ? UPX_VERSION_STRING : UPX_VERSION_STRING x)
     fg = con_fg(f,FG_GREEN);
     con_fprintf(f,
-                "                     Ultimate Packer for eXecutables\n"
-                "   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004\n"
-                "UPX %-12s Markus F.X.J. Oberhumer & Laszlo Molnar %20s\n\n",
+                "                       Ultimate Packer for eXecutables\n"
+                "    Copyright (C) 1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006\n"
+                "UPX %-10s  Markus Oberhumer, Laszlo Molnar & John Reiser  %14s\n\n",
 #if (ACC_OS_DOS16 || ACC_OS_DOS32)
                 V("d"),
 #elif (ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
@@ -105,7 +105,7 @@ void show_help(int x)
                 "  -d     decompress                        -l    list compressed file\n"
                 "  -t     test compressed file              -V    display version number\n"
                 "  -h     give %s help                    -L    display software license\n%s",
-                x == 0 ? "" : "  --best compress best (can be very slow for big files)\n",
+                x == 0 ? "" : "  --best compress best (can be slow for big files)\n",
                 x == 0 ? "more" : "this", x == 0 ? "" : "\n");
 
     fg = con_fg(f,FG_YELLOW);
@@ -140,14 +140,30 @@ void show_help(int x)
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --overlay=copy      copy any extra data attached to the file [default]\n"
-                    "  --overlay=strip     strip any extra data attached to the file [dangerous]\n"
+                    "  --overlay=strip     strip any extra data attached to the file [DANGEROUS]\n"
                     "  --overlay=skip      don't compress a file with an overlay\n"
+                    "\n");
+        fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"Options for atari/tos:\n");
+        fg = con_fg(f,fg);
+        con_fprintf(f,
+                    "  --all-methods       try all available compression methods\n"
+                    "\n");
+        fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"Options for djgpp2/coff:\n");
+        fg = con_fg(f,fg);
+        con_fprintf(f,
+                    "  --coff              produce COFF output [default: EXE]\n"
+                    "  --all-methods       try all available compression methods\n"
+                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/com:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --8086              make compressed com work on any 8086\n"
+                    "  --all-methods       try all available compression methods\n"
+                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/exe:\n");
@@ -155,18 +171,47 @@ void show_help(int x)
         con_fprintf(f,
                     "  --8086              make compressed exe work on any 8086\n"
                     "  --no-reloc          put no relocations in to the exe header\n"
+                    "  --all-methods       try all available compression methods\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for dos/sys:\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
                     "  --8086              make compressed sys work on any 8086\n"
+                    "  --all-methods       try all available compression methods\n"
+                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
+#if 0
         fg = con_fg(f,FG_YELLOW);
-        con_fprintf(f,"Options for djgpp2/coff:\n");
+        con_fprintf(f,"Options for linux/386\n");
         fg = con_fg(f,fg);
         con_fprintf(f,
-                    "  --coff              produce COFF output [default: EXE]\n"
+                    "  --script             use /usr/local/lib/upx/upx[bd] as decompressor\n"
+                    "  --script=/path/upxX  use path/upxX as decompressor\n"
+                    "\n");
+#endif
+        fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"Options for ps1/exe:\n");
+        fg = con_fg(f,fg);
+        con_fprintf(f,
+                    "  --all-methods       try all available compression methods\n"
+                    "  --8-bit             uses 8 bit size compression [default: 32 bit]\n"
+                    "  --console-run       enables client/host transfer compatibility\n"
+                    "  --no-align          don't align to 2048 bytes [enables: --console-run]\n"
+                    "\n");
+        fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"Options for tmt/adam:\n");
+        fg = con_fg(f,fg);
+        con_fprintf(f,
+                    "  --all-methods       try all available compression methods\n"
+                    "  --all-filters       try all available preprocessing filters\n"
+                    "\n");
+        fg = con_fg(f,FG_YELLOW);
+        con_fprintf(f,"Options for vmlinuz/386\n");
+        fg = con_fg(f,fg);
+        con_fprintf(f,
+                    "  --all-methods       try all available compression methods\n"
+                    "  --all-filters       try all available preprocessing filters\n"
                     "\n");
         fg = con_fg(f,FG_YELLOW);
         con_fprintf(f,"Options for watcom/le:\n");
@@ -184,18 +229,49 @@ void show_help(int x)
                     "  --compress-icons=1      compress all but the first icon\n"
                     "  --compress-icons=2      compress all but the first icon directory [default]\n"
                     "  --compress-resources=0  do not compress any resources at all\n"
+                    "  --keep-resource=list    do not compress resources specified by list\n"
                     "  --strip-relocs=0        do not strip relocations\n"
                     "  --strip-relocs=1        strip relocations [default]\n"
+                    "  --all-methods           try all available compression methods\n"
+                    "  --all-filters           try all available preprocessing filters\n"
                     "\n");
     }
 
     con_fprintf(f,
-                "  file.. executables to (de)compress\n"
-                "\n"
-                "This version supports: dos/exe, dos/com, dos/sys, djgpp2/coff, watcom/le,\n"
-                "                       win32/pe, rtm32/pe, tmt/adam, atari/tos, linux/386\n"
-                "\n"
-                "UPX comes with ABSOLUTELY NO WARRANTY; for details type `upx -L'.\n"
+                "file..   executables to (de)compress\n"
+                "\n");
+    fg = con_fg(f,FG_YELLOW);
+    con_fprintf(f,"This version supports:\n");
+    fg = con_fg(f,fg);
+    con_fprintf(f,"   "
+// TODO:
+// support for mach/ppc32
+// support for linux elf/ppc32
+// support for linux elf/amd64
+                " arm/pe,"
+                " atari/tos,"
+                " bvmlinuz/386,"
+                " djgpp2/coff,"
+                " dos/com,"
+                " dos/exe,"
+                " dos/sys,"
+                "\n   "
+                //" elks/8086,"
+                " linux/amd64,"
+                " linux/i386,"
+                " linux/ppc32,"
+                " mach/ppc32,"
+                " ps1/exe,"
+                " rtm32/pe,"
+                "\n   "
+                " tmt/adam,"
+                " vmlinux/386,"
+                " vmlinuz/386,"
+                " watcom/le,"
+                //" win16/ne,"
+                " win32/pe"
+                "\n\nUPX comes with ABSOLUTELY NO WARRANTY; for details visit http://upx.sf.net\n"
+//                "\n\nUPX comes with ABSOLUTELY NO WARRANTY; for details type `upx -L'.\n"
                 "");
 
 
@@ -277,8 +353,10 @@ void show_version(int x)
 #if defined(WITH_UCL)
     fprintf(f,"UCL data compression library %s\n", ucl_version_string());
 #endif
-    fprintf(f,"Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer\n");
-    fprintf(f,"Copyright (C) 1996-2004 Laszlo Molnar\n");
+    fprintf(f,"Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer\n");
+    fprintf(f,"Copyright (C) 1996-2006 Laszlo Molnar\n");
+    fprintf(f,"Copyright (C) 2000-2006 John F. Reiser\n");
+    fprintf(f,"Copyright (C) 2002-2006 Jens Medoch\n");
     fprintf(f,"UPX comes with ABSOLUTELY NO WARRANTY; for details type `%s -L'.\n", progname);
 }
 

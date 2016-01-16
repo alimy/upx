@@ -53,21 +53,32 @@ void center_string(char *buf, size_t size, const char *s);
 int find(const void *b, int blen, const void *what, int wlen);
 int find_be16(const void *b, int blen, unsigned what);
 int find_be32(const void *b, int blen, unsigned what);
+int find_be64(const void *b, int blen, acc_uint64l_t what);
 int find_le16(const void *b, int blen, unsigned what);
 int find_le32(const void *b, int blen, unsigned what);
+int find_le64(const void *b, int blen, acc_uint64l_t what);
 
-#if (UPX_VERSION_HEX < 0x019000)
-upx_bytep pfind(const void *b, int blen, const void *what, int wlen);
-upx_bytep pfind_be16(const void *b, int blen, unsigned what);
-upx_bytep pfind_be32(const void *b, int blen, unsigned what);
-upx_bytep pfind_le16(const void *b, int blen, unsigned what);
-upx_bytep pfind_le32(const void *b, int blen, unsigned what);
-#endif
+int mem_replace(void *b, int blen, const void *what, int wlen, const void *r);
 
 
-inline ptrdiff_t ptr_diff(const void *p1, const void *p2)
+#if (ACC_CC_BORLANDC && (__BORLANDC__ < 0x0530))
+#elif (ACC_CC_DMC && (__DMC__ < 0x830))
+#elif (ACC_CC_MSC && (_MSC_VER < 1310))
+#else
+template <class T>
+inline int ptr_diff(const T *p1, const T *p2)
 {
-    return (const char*) p1 - (const char*) p2;
+    COMPILE_TIME_ASSERT(sizeof(T) == 1)
+    ptrdiff_t d = (const char*) p1 - (const char*) p2;
+    assert((int)d == d);
+    return (int) d;
+}
+#endif
+inline int ptr_diff(const void *p1, const void *p2)
+{
+    ptrdiff_t d = (const char*) p1 - (const char*) p2;
+    assert((int)d == d);
+    return (int) d;
 }
 
 

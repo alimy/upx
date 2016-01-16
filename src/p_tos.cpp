@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,6 +29,7 @@
 #include "conf.h"
 
 #include "file.h"
+#include "filter.h"
 #include "packer.h"
 #include "p_tos.h"
 
@@ -61,15 +62,10 @@ PackTos::PackTos(InputFile *f) :
 }
 
 
-int PackTos::getCompressionMethod() const
+const int *PackTos::getCompressionMethods(int method, int level) const
 {
-    if (M_IS_NRV2B(opt->method))
-        return M_NRV2B_8;
-    if (M_IS_NRV2D(opt->method))
-        return M_NRV2D_8;
-    if (M_IS_NRV2E(opt->method))
-        return M_NRV2E_8;
-    return opt->level > 1 && file_size >= 512*1024 ? M_NRV2D_8 : M_NRV2B_8;
+    bool small = ih.fh_text + ih.fh_data <= 256*1024;
+    return Packer::getDefaultCompressionMethods_8(method, level, small);
 }
 
 
@@ -81,11 +77,11 @@ const int *PackTos::getFilters() const
 
 const upx_byte *PackTos::getLoader() const
 {
-    if (M_IS_NRV2B(opt->method))
+    if (M_IS_NRV2B(ph.method))
         return opt->small ? nrv2b_loader_small : nrv2b_loader;
-    if (M_IS_NRV2D(opt->method))
+    if (M_IS_NRV2D(ph.method))
         return opt->small ? nrv2d_loader_small : nrv2d_loader;
-    if (M_IS_NRV2E(opt->method))
+    if (M_IS_NRV2E(ph.method))
         return opt->small ? nrv2e_loader_small : nrv2e_loader;
     return NULL;
 }
@@ -93,11 +89,11 @@ const upx_byte *PackTos::getLoader() const
 
 int PackTos::getLoaderSize() const
 {
-    if (M_IS_NRV2B(opt->method))
+    if (M_IS_NRV2B(ph.method))
         return opt->small ? sizeof(nrv2b_loader_small) : sizeof(nrv2b_loader);
-    if (M_IS_NRV2D(opt->method))
+    if (M_IS_NRV2D(ph.method))
         return opt->small ? sizeof(nrv2d_loader_small) : sizeof(nrv2d_loader);
-    if (M_IS_NRV2E(opt->method))
+    if (M_IS_NRV2E(ph.method))
         return opt->small ? sizeof(nrv2e_loader_small) : sizeof(nrv2e_loader);
     return 0;
 }
@@ -140,17 +136,19 @@ int PackTos::getLoaderSize() const
 
 /*************************************************************************
 // util
+//   readFileHeader() reads ih and checks for illegal values
+//   checkFileHeader() checks ih for legal but unsupported values
 **************************************************************************/
 
-bool PackTos::readFileHeader()
+int PackTos::readFileHeader()
 {
     fi->seek(0,SEEK_SET);
     fi->readx(&ih, FH_SIZE);
     if (ih.fh_magic != 0x601a)
-        return false;
+        return 0;
     if (FH_SIZE + ih.fh_text + ih.fh_data + ih.fh_sym > (unsigned) file_size)
-        return false;
-    return true;
+        return 0;
+    return UPX_F_ATARI_TOS;
 }
 
 
@@ -225,6 +223,7 @@ static unsigned OP_MOVEQ(int value, int d_reg)
 
 static unsigned OP_SUBQ_L(int value, int d_reg)
 {
+    // subq.l #X,d0
     assert(value >= 1 && value <= 8);
     assert(d_reg >= REG_D0 && d_reg <= REG_D7);
     return 0x5180 | ((value & 7) << 9) | (d_reg & 7);
@@ -232,6 +231,7 @@ static unsigned OP_SUBQ_L(int value, int d_reg)
 
 static unsigned OP_SUBQ_W(int value, int d_reg)
 {
+    // subq.w #X,d0
     assert(value >= 1 && value <= 8);
     assert(d_reg >= REG_D0 && d_reg <= REG_D7);
     return 0x5140 | ((value & 7) << 9) | (d_reg & 7);
@@ -242,7 +242,7 @@ static unsigned OP_SUBQ_W(int value, int d_reg)
 //
 **************************************************************************/
 
-unsigned PackTos::patch_d_subq(void *l, int llen,
+unsigned PackTos::patch_d_subq(void *b, int blen,
                                int d_reg, unsigned d_value,
                                const char *subq_marker)
 {
@@ -251,15 +251,15 @@ unsigned PackTos::patch_d_subq(void *l, int llen,
     assert(d_reg >= REG_D0 && d_reg <= REG_D7);
     assert((int)d_value > 0);
 
-    upx_byte *p;
-
-    p = pfind_be16(l, llen, get_be16(subq_marker));
-    if (p == NULL)
+    int boff =  find_be16(b, blen, get_be16(subq_marker));
+    if (boff < 0)
         throwBadLoader();
+
+    upx_byte *p = (upx_byte *)b + boff;
     if (p[2] == 0x66)                           // bne.b XXX
-        checkPatch(l, p, 4);
+        checkPatch(b, blen, boff, 4);
     else
-        checkPatch(l, p, 2);
+        checkPatch(b, blen, boff, 2);
 
     if (d_value > 65536)
     {
@@ -286,17 +286,16 @@ unsigned PackTos::patch_d_subq(void *l, int llen,
 }
 
 
-unsigned PackTos::patch_d_loop(void *l, int llen,
+unsigned PackTos::patch_d_loop(void *b, int blen,
                                int d_reg, unsigned d_value,
                                const char *d_marker, const char *subq_marker)
 {
-    upx_byte *p;
+    d_value = patch_d_subq(b, blen, d_reg, d_value, subq_marker);
 
-    d_value = patch_d_subq(l, llen, d_reg, d_value, subq_marker);
-
-    p = pfind_be32(l, llen, get_be32(d_marker));
+    int boff = find_be32(b, blen, get_be32(d_marker));
+    checkPatch(b, blen, boff, 4);
+    upx_byte *p = (upx_byte *)b + boff;
     assert(get_be16(p - 2) == OP_MOVEI_L(d_reg));    // move.l #XXXXXXXX,d0
-    checkPatch(l, p, 4);
     set_be32(p, d_value);
     return d_value;
 }
@@ -371,14 +370,14 @@ bool PackTos::canPack()
         return false;
 
     unsigned char buf[768];
-    fi->readx(buf,sizeof(buf));
-    if (pfind_le32(buf,sizeof(buf),UPX_MAGIC_LE32))
-        throwAlreadyPacked();
+    fi->readx(buf, sizeof(buf));
+    checkAlreadyPacked(buf, sizeof(buf));
 
     if (!checkFileHeader())
         throwCantPack("unsupported header flags");
     if (file_size < 1024)
-        throwCantPack("program too small");
+        throwCantPack("program is too small");
+
     return true;
 }
 
@@ -405,14 +404,6 @@ void PackTos::pack(OutputFile *fo)
     unsigned relocsize = 0;
     unsigned overlay = 0;
 
-    const unsigned lsize = getLoaderSize();
-    const unsigned e_len = get_be16(getLoader()+lsize-6);
-    const unsigned d_len = get_be16(getLoader()+lsize-4);
-    const unsigned decomp_offset = get_be16(getLoader()+lsize-2);
-    //printf("%d %d %d\n", e_len, d_len, lsize);
-    assert(e_len + d_len == lsize - 6);
-    assert((e_len & 3) == 0 && (d_len & 1) == 0);
-
     const unsigned i_text = ih.fh_text;
     const unsigned i_data = ih.fh_data;
     const unsigned i_sym = ih.fh_sym;
@@ -420,7 +411,7 @@ void PackTos::pack(OutputFile *fo)
 
     // read file
     const unsigned isize = file_size - i_sym;
-    ibuf = new upx_byte[isize];
+    ibuf.alloc(isize);
     fi->seek(FH_SIZE, SEEK_SET);
     // read text + data
     t = i_text + i_data;
@@ -481,18 +472,26 @@ void PackTos::pack(OutputFile *fo)
     // After compression this will become the first part of the
     // data segement. The second part will be the decompressor.
 
-    // alloc buffer
-    const unsigned osize = t + t/8 + 256 + d_len + 512;
-    obuf = new upx_byte[osize];
+    // alloc buffer (2048 is for decompressor and the various alignments)
+    obuf.allocForCompression(t, 2048);
 
-    // compress (max_match = 65535)
+    // prepare packheader
     ph.u_len = t;
-    if (!compress(ibuf,obuf,0,65535))
-        throwNotCompressible();
+    // prepare filter
+    Filter ft(ph.level);
+    // compress (max_match = 65535)
+    compressWithFilters(&ft, 512, 0, NULL, 0, 65535);
+
+    // get loader
+    const unsigned lsize = getLoaderSize();
+    const unsigned e_len = get_be16(getLoader()+lsize-6);
+    const unsigned d_len = get_be16(getLoader()+lsize-4);
+    const unsigned decomp_offset = get_be16(getLoader()+lsize-2);
+    assert(e_len + d_len == lsize - 6);
+    assert((e_len & 3) == 0 && (d_len & 1) == 0);
 
     // The decompressed data will now get placed at this offset:
-    const unsigned overlapoh = findOverlapOverhead(obuf, ibuf, 512);
-    unsigned offset = (ph.u_len + overlapoh) - ph.c_len;
+    unsigned offset = (ph.u_len + ph.overlap_overhead) - ph.c_len;
 
     // compute addresses
     unsigned o_text, o_data, o_bss;
@@ -542,10 +541,15 @@ void PackTos::pack(OutputFile *fo)
         o_bss++;
 
     // prepare loader
-    loader = new upx_byte[o_text];
-    memcpy(loader,getLoader(),o_text);
+    MemBuffer loader(o_text);
+    memcpy(loader, getLoader(), o_text);
 
     // patch loader
+    int tmp = patchPackHeader(loader, o_text);
+    assert(tmp + 32 == (int)o_text); UNUSED(tmp);
+    patchVersionYear(loader, o_text);
+    if (!opt->small)
+        patchVersion(loader, o_text);
     //   patch "subq.l #1,d6" or "subq.w #1,d6" - see "up41" below
     const unsigned dirty_bss_d6 =
         patch_d_subq(loader, o_text, REG_D6, dirty_bss / dirty_bss_align, "u4");
@@ -571,8 +575,6 @@ void PackTos::pack(OutputFile *fo)
     patch_be32(loader,o_text,"up12",i_data);              // p_dlen
     patch_be32(loader,o_text,"up11",i_text);              // p_tlen
 
-    putPackHeader(loader,o_text);
-
     // patch decompressor
     upx_byte *p = obuf + d_off;
     //   patch "moveq.l #1,d5" or "jmp (ASTACK)"
@@ -581,7 +583,7 @@ void PackTos::pack(OutputFile *fo)
 
     // set new file_hdr
     memcpy(&oh, &ih, FH_SIZE);
-    if (opt->tos.split_segments)
+    if (opt->atari_tos.split_segments)
     {
         oh.fh_text = o_text;
         oh.fh_data = o_data;
@@ -615,8 +617,15 @@ void PackTos::pack(OutputFile *fo)
     // write empty relocation fixup
     fo->write("\x00\x00\x00\x00",4);
 
+    // verify
+    verifyOverlappingDecompression();
+
     // copy the overlay
-    copyOverlay(fo, overlay, ibuf, isize);
+    copyOverlay(fo, overlay, &obuf);
+
+    // finally check the compression ratio
+    if (!checkFinalCompressionRatio(fo))
+        throwNotCompressible();
 }
 
 
@@ -624,16 +633,17 @@ void PackTos::pack(OutputFile *fo)
 //
 **************************************************************************/
 
-bool PackTos::canUnpack()
+int PackTos::canUnpack()
 {
     if (!readFileHeader())
         return false;
-    if (!readPackHeader(768, 0))
+    if (!readPackHeader(768))
         return false;
     // check header as set by packer
     if ((ih.fh_text & 3) != 0 || (ih.fh_data & 3) != 0 || (ih.fh_bss & 3) != 0
         || ih.fh_sym != 0 || ih.fh_reserved != 0 || ih.fh_reloc > 1)
         throwCantUnpack("program header damaged");
+    // generic check
     if (!checkFileHeader())
         throwCantUnpack("unsupported header flags");
     return true;
@@ -646,11 +656,11 @@ bool PackTos::canUnpack()
 
 void PackTos::unpack(OutputFile *fo)
 {
-    ibuf = new upx_byte[ph.c_len];
-    obuf = new upx_byte[ph.u_len + 512];    // 512 safety bytes
+    ibuf.alloc(ph.c_len);
+    obuf.allocForUncompression(ph.u_len);
 
-    fi->seek(ph.buf_offset + ph.getPackHeaderSize(),SEEK_SET);
-    fi->readx(ibuf,ph.c_len);
+    fi->seek(FH_SIZE + ph.buf_offset + ph.getPackHeaderSize(), SEEK_SET);
+    fi->readx(ibuf, ph.c_len);
 
     // decompress
     decompress(ibuf,obuf);
@@ -667,7 +677,7 @@ void PackTos::unpack(OutputFile *fo)
         fo->write(obuf, ph.u_len-FH_SIZE);          // orig. text+data+relocs
 
         // copy any overlay
-        copyOverlay(fo, overlay, obuf, ph.u_len);
+        copyOverlay(fo, overlay, &obuf);
     }
 }
 

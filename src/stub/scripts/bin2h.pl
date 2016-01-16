@@ -4,8 +4,9 @@
 #
 #  This file is part of the UPX executable compressor.
 #
-#  Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-#  Copyright (C) 1996-2004 Laszlo Molnar
+#  Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
+#  Copyright (C) 1996-2006 Laszlo Molnar
+#  Copyright (C) 2000-2006 John F. Reiser
 #  All Rights Reserved.
 #
 #  UPX and the UCL library are free software; you can redistribute them
@@ -29,7 +30,6 @@
 
 
 use Compress::Zlib;
-
 
 $delim = $/;
 undef $/;       # undef input record separator - read file as a whole
@@ -81,8 +81,9 @@ print <<"EOF";
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2006 Laszlo Molnar
+   Copyright (C) 2000-2006 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -110,6 +111,7 @@ EOF
 
 $s = $ident;
 $s =~ tr/a-z/A-Z/;
+printf("#define %s_SIZE    %d\n", $s, $n);
 printf("#define %s_ADLER32 0x%08x\n", $s, &adler32($data));
 printf("#define %s_CRC32   0x%08x\n", $s, &crc32($data));
 printf("\n");
@@ -137,27 +139,5 @@ select(STDOUT);
 
 undef $delim;
 exit(0);
-
-
-# /***********************************************************************
-# //
-# ************************************************************************/
-
-sub adler32_OLD {
-    local($d) = @_;
-    local($n) = length($d);
-    local($i);
-    local($s1) = 1;
-    local($s2) = 0;
-
-    for ($i = 0; $i < $n; $i++) {
-        $s1 += ord(substr($d, $i, 1));
-        $s2 += $s1;
-        $s1 %= 65521;
-        $s2 %= 65521;
-    }
-
-    return ($s2 << 16) | $s1;
-}
 
 # vi:ts=4:et

@@ -144,8 +144,8 @@ static const char *mkline(unsigned long fu_len, unsigned long fc_len,
                           const char *format_name, const char *filename,
                           bool decompress=false)
 {
-    static char buf[2000];
-    char r[7+1] = "";
+    static char buf[2048];
+    char r[7+1];
     char fn[13+1];
     const char *f;
 
@@ -219,13 +219,14 @@ UiPacker::~UiPacker()
 
 void UiPacker::printInfo(int nl)
 {
-#if 1
-    char method_name[32+1];
-    set_method_name(method_name, sizeof(method_name), p->ph.method, p->ph.level);
-    con_fprintf(stdout, "Compressing %s [%s, %s]%s", p->fi->getName(), p->getName(), method_name, nl ? "\n" : "");
-#else
-    con_fprintf(stdout, "Compressing %s [%s]%s", p->fi->getName(), p->getName(), nl ? "\n" : "");
-#endif
+    if (opt->all_methods && s->total_passes > 1)
+        con_fprintf(stdout, "Compressing %s [%s]%s", p->fi->getName(), p->getName(), nl ? "\n" : "");
+    else
+    {
+        char method_name[32+1];
+        set_method_name(method_name, sizeof(method_name), p->ph.method, p->ph.level);
+        con_fprintf(stdout, "Compressing %s [%s, %s]%s", p->fi->getName(), p->getName(), method_name, nl ? "\n" : "");
+    }
 }
 
 
@@ -263,7 +264,11 @@ void UiPacker::startCallback(unsigned u_len, unsigned step,
         return;
     }
 
+#if (ACC_CC_MSC && (_MSC_VER == 1300))
+    cb.callback = &UiPacker::callback;
+#else
     cb.callback = callback;
+#endif
     cb.user = this;
 
     if (s->mode == M_CB_TERM)

@@ -35,13 +35,12 @@
    /* avoid -W4 warnings in <windows.h> */
 #  pragma warning(disable: 4201 4214 4514)
 #endif
-#if 0
-#  include "acc/acc_lib.ch"
-#else
-#  include "acc/acc_inci.h"
-#  include "acc/acclib/misc.ch"
-#  include "acc/acclib/hsread.ch"
-#endif
+#define ACC_WANT_ACC_INCI_H 1
+#define ACC_WANT_ACCLIB_HSREAD 1
+#define ACC_WANT_ACCLIB_MISC 1
+#define ACC_WANT_ACCLIB_UA 1
+#define ACC_WANT_ACCLIB_WILDARGV 1
+#include "miniacc.h"
 
 
 /*************************************************************************
@@ -62,6 +61,13 @@ int __acc_cdecl_qsort be32_compare(const void *e1, const void *e2)
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
+int __acc_cdecl_qsort be64_compare(const void *e1, const void *e2)
+{
+    const acc_uint64l_t d1 = get_be64(e1);
+    const acc_uint64l_t d2 = get_be64(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
 int __acc_cdecl_qsort le16_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_le16(e1);
@@ -73,6 +79,13 @@ int __acc_cdecl_qsort le32_compare(const void *e1, const void *e2)
 {
     const unsigned d1 = get_le32(e1);
     const unsigned d2 = get_le32(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int __acc_cdecl_qsort le64_compare(const void *e1, const void *e2)
+{
+    const acc_uint64l_t d1 = get_le64(e1);
+    const acc_uint64l_t d2 = get_le64(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
@@ -91,6 +104,13 @@ int __acc_cdecl_qsort be32_compare_signed(const void *e1, const void *e2)
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
+int __acc_cdecl_qsort be64_compare_signed(const void *e1, const void *e2)
+{
+    const acc_int64l_t d1 = get_be64_signed(e1);
+    const acc_int64l_t d2 = get_be64_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
 int __acc_cdecl_qsort le16_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_le16_signed(e1);
@@ -102,6 +122,13 @@ int __acc_cdecl_qsort le32_compare_signed(const void *e1, const void *e2)
 {
     const int d1 = get_le32_signed(e1);
     const int d2 = get_le32_signed(e2);
+    return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
+}
+
+int __acc_cdecl_qsort le64_compare_signed(const void *e1, const void *e2)
+{
+    const acc_int64l_t d1 = get_le64_signed(e1);
+    const acc_int64l_t d2 = get_le64_signed(e2);
     return (d1 < d2) ? -1 : ((d1 > d2) ? 1 : 0);
 }
 
@@ -144,6 +171,14 @@ int find_be32(const void *b, int blen, unsigned what)
 }
 
 
+int find_be64(const void *b, int blen, acc_uint64l_t what)
+{
+    unsigned char w[8];
+    set_be64(w, what);
+    return find(b, blen, w, 8);
+}
+
+
 int find_le16(const void *b, int blen, unsigned what)
 {
     unsigned char w[2];
@@ -160,92 +195,32 @@ int find_le32(const void *b, int blen, unsigned what)
 }
 
 
-/*************************************************************************
-// find util
-**************************************************************************/
-
-#if (UPX_VERSION_HEX < 0x019000)
-
-upx_bytep pfind(const void *b, int blen, const void *what, int wlen)
+int find_le64(const void *b, int blen, acc_uint64l_t what)
 {
-    if (b == NULL || blen <= 0 || what == NULL || wlen <= 0)
-        return NULL;
-
-    int i;
-    const upx_bytep base = (const upx_bytep) b;
-    unsigned char firstc = * (const upx_bytep) what;
-
-    blen -= wlen;
-    for (i = 0; i <= blen; i++, base++)
-        if (*base == firstc && memcmp(base, what, wlen) == 0)
-            return const_cast<upx_bytep>(base);
-
-    return NULL;
+    unsigned char w[8];
+    set_le64(w, what);
+    return find(b, blen, w, 8);
 }
 
 
-upx_bytep pfind_be16(const void *b, int blen, unsigned what)
+int mem_replace(void *bb, int blen, const void *what, int wlen, const void *r)
 {
-    unsigned char w[2];
-    set_be16(w, what);
-    return pfind(b, blen, w, 2);
+    unsigned char *b = (unsigned char *) bb;
+    int boff = 0;
+    int n = 0;
+
+    while (blen - boff >= wlen)
+    {
+        int off = find(b + boff, blen - boff, what, wlen);
+        if (off < 0)
+            break;
+        boff += off;
+        memcpy(b + boff, r, wlen);
+        boff += wlen;
+        n++;
+    }
+    return n;
 }
-
-
-upx_bytep pfind_be32(const void *b, int blen, unsigned what)
-{
-    unsigned char w[4];
-    set_be32(w, what);
-    return pfind(b, blen, w, 4);
-}
-
-
-upx_bytep pfind_le16(const void *b, int blen, unsigned what)
-{
-    unsigned char w[2];
-    set_le16(w, what);
-    return pfind(b, blen, w, 2);
-}
-
-
-upx_bytep pfind_le32(const void *b, int blen, unsigned what)
-{
-    unsigned char w[4];
-    set_le32(w, what);
-    return pfind(b, blen, w, 4);
-}
-
-#endif /* UPX_VERSION_HEX */
-
-
-/*************************************************************************
-// ctype util
-**************************************************************************/
-
-#if 0
-bool upx_isdigit(int c)
-{
-    return c >= '0' && c <= '9';
-}
-
-bool upx_islower(int c)
-{
-    return c >= 'a' && c <= 'z';
-}
-
-bool upx_isspace(int c)
-{
-    // according to "C" and "POSIX" locales
-    return strchr(" \f\n\r\t\v", c) != NULL;
-}
-
-int upx_tolower(int c)
-{
-    if (c >= 'A' && c <= 'Z')
-        c += 'a' - 'A';
-    return c;
-}
-#endif
 
 
 /*************************************************************************
@@ -552,39 +527,6 @@ unsigned get_ratio(unsigned u_len, unsigned c_len)
 
 
 /*************************************************************************
-// memory debugging
-**************************************************************************/
-
-#if defined(WITH_GC)
-extern "C" {
-
-#undef malloc
-#undef realloc
-#undef free
-#ifndef __malloc_ptr_t
-#  define __malloc_ptr_t    __ptr_t
-#endif
-
-__malloc_ptr_t malloc(size_t size)
-{
-    return GC_MALLOC(size);
-}
-
-__malloc_ptr_t realloc(__malloc_ptr_t ptr, size_t size)
-{
-    return GC_REALLOC(ptr, size);
-}
-
-void free(__malloc_ptr_t ptr)
-{
-    GC_FREE(ptr);
-}
-
-}; // extern "C"
-#endif
-
-
-/*************************************************************************
 // Don't link these functions from libc ==> save xxx bytes
 **************************************************************************/
 
@@ -608,110 +550,6 @@ time_t time(time_t *t)
     return 0;
 }
 #endif /* __DJGPP__ */
-
-
-// These space savings are only useful when building a statically
-// linked version, so this is disabled for now.
-#if 0 && defined(__linux__) && defined(__GLIBC__)
-
-#if 1
-// We don't need floating point support in printf().
-// See glibc/stdio-common/*
-int __printf_fp(void)
-{
-    assert(0);
-    return -1;
-}
-int __printf_fphex(void)
-{
-    assert(0);
-    return -1;
-}
-#endif
-
-
-#if 1
-// We don't need multibyte character support.
-// See <wchar.h> and glibc/xxx/vfprintf.c
-int mblen(const char *, size_t)
-{
-    assert(0);
-    return -1;
-}
-int mbtowc(...)
-{
-    assert(0);
-    return -1;
-}
-int mbrtowc(...)
-{
-    assert(0);
-    return -1;
-}
-// glibc internals
-size_t __ctype_get_mb_cur_max(void)
-{
-    assert(0);
-    return 1;
-}
-int __mbrlen(...)
-{
-    assert(0);
-    return -1;
-}
-int __mbrtowc(...)
-{
-    assert(0);
-    return -1;
-}
-int __wcrtomb(...)
-{
-    assert(0);
-    return -1;
-}
-int __wcsrtombs(...)
-{
-    assert(0);
-    return -1;
-}
-// see strtol.c
-int __btowc(...)
-{
-    assert(0);
-    return -1;
-}
-#endif
-
-
-#if 1
-// We don't need *scanf.
-// See iovsscanf.c
-// (libc6 2.1.1-10: this function pulls in ~80kB code !)
-int _IO_vsscanf(void)
-{
-    assert(0);
-    return -1;
-}
-#endif
-
-
-#if 0
-// FIXME - also should get rid of this intl stuff
-// see glibc/intl/*
-static const char _nl_default_default_domain[] = "messages";
-static const char *_nl_current_default_domain = _nl_default_default_domain;
-static const char _nl_default_dirname[] = "";
-char *bindtextdomain(const char *, const char *)
-{
-    return NULL;
-}
-char *textdomain(const char *)
-{
-    return (char *) _nl_current_default_domain;
-}
-#endif
-
-#endif /* __linux__ && __GLIBC__ */
 
 
 } // extern "C"

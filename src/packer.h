@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   Markus F.X.J. Oberhumer   Laszlo Molnar
+   markus@oberhumer.com      ml1050@users.sourceforge.net
  */
 
 
@@ -47,15 +47,21 @@ class Filter;
 // see stub/header.ash
 class PackHeader
 {
+    friend class Packer;
+
+private:
+    // these are strictly private to Packer and not accessible in subclasses:
+    PackHeader();
+
+    void putPackHeader(upx_bytep p);
+    bool fillPackHeader(const upx_bytep b, int blen);
+
 public:
-    bool fillPackHeader(upx_bytep buf, unsigned len);
-    bool checkPackHeader(const upx_bytep hbuf, int hlen) const;
-    void putPackHeader(upx_bytep buf, unsigned len);
     int getPackHeaderSize() const;
 
 public:
     // fields stored in compressed file
-    unsigned magic;             // UPX_MAGIC_LE32
+    //enum { magic = UPX_MAGIC_LE32 };
     int version;
     int format;                 // executable format
     int method;                 // compresison method
@@ -67,10 +73,15 @@ public:
     off_t u_file_size;
     int filter;
     int filter_cto;
+    int n_mru;                  // FIXME: rename to filter_misc
     int header_checksum;
 
+    // support fields for verifying decompression
+    unsigned saved_u_adler;
+    unsigned saved_c_adler;
+
     // info fields set by fillPackHeader()
-    long buf_offset;            // must be signed
+    long buf_offset;
 
     // info fields set by Packer::compress()
     //unsigned min_offset_found;
@@ -81,6 +92,9 @@ public:
     unsigned max_run_found;
     unsigned first_offset_found;
     //unsigned same_match_offsets_found;
+
+    // info fields set by Packer::compressWithFilters()
+    unsigned overlap_overhead;
 };
 
 
@@ -101,7 +115,7 @@ public:
     // A unique integer ID for this executable format. See conf.h.
     virtual int getFormat() const = 0;
     virtual const char *getName() const = 0;
-    virtual int getCompressionMethod() const = 0;
+    virtual const int *getCompressionMethods(int method, int level) const = 0;
     virtual const int *getFilters() const = 0;
 
     // PackMaster entries
@@ -120,6 +134,12 @@ public:
         { return (format == getFormat()); }
 
 protected:
+    // unpacker tests - these may throw exceptions
+    virtual bool testUnpackVersion(int version) const;
+    virtual bool testUnpackFormat(int format) const;
+
+protected:
+    // implementation
     virtual void pack(OutputFile *fo) = 0;
     virtual void unpack(OutputFile *fo) = 0;
     virtual void test();
@@ -127,41 +147,54 @@ protected:
     virtual void fileInfo();
 
 public:
+    // canPack() should throw a cantPackException eplaining why it
+    // cannot pack a recognized format.
+    // canUnpack() can return -1 meaning "format recognized, but file
+    // is definitely not packed" (see packmast.cpp).
     virtual bool canPack() = 0;
-    virtual bool canUnpack() = 0;
-    virtual bool canTest() { return canUnpack(); }
-    virtual bool canList() { return canUnpack(); }
+    virtual int canUnpack() = 0;
+    virtual int canTest() { return canUnpack(); }
+    virtual int canList() { return canUnpack(); }
 
 protected:
     // main compression drivers
     virtual bool compress(upx_bytep in, upx_bytep out,
                           unsigned max_offset = 0, unsigned max_match = 0);
-    virtual void decompress(const upx_bytep in,
-                            upx_bytep out, bool verify_checksum=true);
-    virtual bool checkCompressionRatio(unsigned c_len, unsigned u_len) const;
+    virtual void decompress(const upx_bytep in, upx_bytep out,
+                            bool verify_checksum = true, Filter *ft = NULL);
+    virtual bool checkCompressionRatio(unsigned u_len, unsigned c_len) const;
+    virtual bool checkFinalCompressionRatio(const OutputFile *fo) const;
 
     // high-level compression drivers
-    void compressWithFilters(Filter *ft, unsigned *overlapoh,
+    void compressWithFilters(Filter *ft,
                              const unsigned overlap_range,
-                             int strategy=-1, const int *filters=NULL,
-                             unsigned max_offset = 0, unsigned max_match = 0);
+                             int strategy = 0,
+                             const int *filters = NULL,
+                             unsigned max_offset = 0, unsigned max_match = 0,
+                             unsigned filter_buf_off = 0,
+                             unsigned compress_buf_off = 0,
+                             unsigned char *header_buffer = 0,
+                             unsigned header_length = 0);
 
     // util for verifying overlapping decompresion
-    virtual bool testOverlappingDecompression(const upx_bytep c,
-                                              const upx_bytep u,
-                                              unsigned overlap_overhead,
-                                              upx_bytep overlap = NULL) const;
-    virtual unsigned findOverlapOverhead(const upx_bytep c,
-                                         const upx_bytep u,
+    //   non-destructive test
+    virtual bool testOverlappingDecompression(const upx_bytep buf,
+                                              unsigned overlap_overhead) const;
+    //   non-destructive find
+    virtual unsigned findOverlapOverhead(const upx_bytep buf,
                                          unsigned range = 0,
                                          unsigned upper_limit = ~0u) const;
+    //   destructive decompress + verify
+    virtual void verifyOverlappingDecompression(Filter *ft = NULL);
+
 
     // packheader handling
-    virtual void putPackHeader(upx_byte *buf, unsigned len);
-    virtual bool readPackHeader(unsigned len, off_t seek_offset,
-                                upx_byte *buf=NULL);
+    virtual int patchPackHeader(void *b, int blen);
+    virtual bool getPackHeader(void *b, int blen);
+    virtual bool readPackHeader(int len);
+    virtual void checkAlreadyPacked(void *b, int blen);
 
-    // filter handling
+    // filter handling [see packerf.cpp]
     virtual bool isValidFilter(int filter_id) const;
     virtual void tryFilters(Filter *ft, upx_byte *buf, unsigned buf_len,
                             unsigned addvalue=0) const;
@@ -169,79 +202,87 @@ protected:
                              unsigned addvalue=0) const;
     virtual void optimizeFilter(Filter *, const upx_byte *, unsigned) const
         { }
+    virtual void addFilter32(int filter_id);
+    virtual bool patchFilter32(void *, int, const Filter *ft);
 
     // loader util
     virtual int buildLoader(const Filter *) { return getLoaderSize(); }
     virtual const upx_byte *getLoader() const;
     virtual int getLoaderSize() const;
     virtual void initLoader(const void *pdata, int plen, int pinfo=-1, int small=-1);
-    virtual void addLoader(const char *s, ...);
-    virtual void addSection(const char *sname, const char *sdata, unsigned len);
-    virtual int getLoaderSection(const char *name, int *slen = NULL);
-    virtual void addFilter32(int filter_id);
+#if 1 && (ACC_CC_GNUC >= 0x040100)
+    virtual void __acc_cdecl_va addLoader(const char *s, ...) __attribute__((__sentinel__));
+#else
+    virtual void __acc_cdecl_va addLoader(const char *s, ...);
+#endif
+    virtual int getLoaderSection(const char *name, int *slen=NULL) const;
+    virtual int getLoaderSectionStart(const char *name, int *slen=NULL) const;
     virtual const char *getDecompressor() const;
+    virtual const char *getIdentstr(unsigned *size, int small=-1);
 
     // stub and overlay util
     static void handleStub(InputFile *fi, OutputFile *fo, long size);
     virtual void checkOverlay(unsigned overlay);
     virtual void copyOverlay(OutputFile *fo, unsigned overlay,
-                             upx_byte *buf, unsigned buf_size,
-                             bool do_seek=true);
+                             MemBuffer *buf, bool do_seek=true);
 
     // misc util
     virtual unsigned getRandomId() const;
 
     // patch util
-    void patch_be16(void *l, int llen, unsigned old, unsigned new_);
-    void patch_be16(void *l, int llen, const void * old, unsigned new_);
-    void patch_be32(void *l, int llen, unsigned old, unsigned new_);
-    void patch_be32(void *l, int llen, const void * old, unsigned new_);
-    void patch_le16(void *l, int llen, unsigned old, unsigned new_);
-    void patch_le16(void *l, int llen, const void * old, unsigned new_);
-    void patch_le32(void *l, int llen, unsigned old, unsigned new_);
-    void patch_le32(void *l, int llen, const void * old, unsigned new_);
-    void checkPatch(void *l, void *p, int size);
+    int patch_be16(void *b, int blen, unsigned old, unsigned new_);
+    int patch_be16(void *b, int blen, const void * old, unsigned new_);
+    int patch_be32(void *b, int blen, unsigned old, unsigned new_);
+    int patch_be32(void *b, int blen, const void * old, unsigned new_);
+    int patch_le16(void *b, int blen, unsigned old, unsigned new_);
+    int patch_le16(void *b, int blen, const void * old, unsigned new_);
+    int patch_le32(void *b, int blen, unsigned old, unsigned new_);
+    int patch_le32(void *b, int blen, const void * old, unsigned new_);
+    int patchVersion(void *b, int blen);
+    int patchVersionYear(void *b, int blen);
+    void checkPatch(void *b, int blen, int boff, int size);
 
-protected:
     // relocation util
     virtual upx_byte *optimizeReloc32(upx_byte *in,unsigned relocnum,upx_byte *out,upx_byte *image,int bs,int *big);
-    virtual unsigned unoptimizeReloc32(upx_byte **in,upx_byte *image,upx_byte *out,int bs);
+    virtual unsigned unoptimizeReloc32(upx_byte **in,upx_byte *image,MemBuffer *out,int bs);
 
+    // compression method util
+    const int *getDefaultCompressionMethods_8(int method, int level, int small=-1) const;
+    const int *getDefaultCompressionMethods_le32(int method, int level, int small=-1) const;
+public:
+    static bool isValidCompressionMethod(int method);
 
 protected:
     InputFile *fi;
     off_t file_size;        // will get set by constructor
     PackHeader ph;          // must be filled by canUnpack()
+    int ph_format;
+    int ph_version;
 
     // compression buffers
-    upx_byte *ibuf;         // input
-    upx_byte *obuf;         // output
-    upx_byte *loader;
-    upx_byte *wrkmem;       // misc. memory
-    unsigned ibuf_size, obuf_size, loader_size, wrkmem_size;
+    MemBuffer ibuf;         // input
+    MemBuffer obuf;         // output
 
     // UI handler
     UiPacker *uip;
     int ui_pass;
     int ui_total_passes;
 
+protected:
     // linker
     Linker *linker;
+    virtual void createLinker(const void *pdata, int plen, int pinfo);
 
 private:
     // private to checkPatch()
     void *last_patch;
-    long last_patch_offset;
-
-private:
-    // setup local options for each packer
-    struct options_t local_options;
-    struct options_t *saved_opt;
+    int last_patch_len;
+    int last_patch_off;
 
 private:
     // disable copy and assignment
-    Packer(Packer const &); // {}
-    Packer& operator= (Packer const &); // { return *this; }
+    Packer(const Packer &); // {}
+    Packer& operator= (const Packer &); // { return *this; }
 };
 
 

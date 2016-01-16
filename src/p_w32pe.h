@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2006 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   Markus F.X.J. Oberhumer   Laszlo Molnar
+   markus@oberhumer.com      ml1050@users.sourceforge.net
  */
 
 
@@ -30,15 +30,15 @@
 #define __UPX_P_W32PE_H
 
 
+class PackW32Pe_Interval;
+class PackW32Pe_Reloc;
+class PackW32Pe_Resource;
+class PackW32Pe_Export;
+
+
 /*************************************************************************
 // w32/pe
 **************************************************************************/
-
-class PackW32Pe__Interval;
-class PackW32Pe__Reloc;
-class PackW32Pe__Resource;
-class PackW32Pe__Export;
-
 
 class PackW32Pe : public Packer
 {
@@ -47,28 +47,30 @@ class PackW32Pe : public Packer
 public:
     PackW32Pe(InputFile *f);
     ~PackW32Pe();
-    virtual int getVersion() const { return 12; }
+    virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_WIN32_PE; }
     virtual const char *getName() const { return isrtm ? "rtm32/pe" : "win32/pe"; }
-    virtual int getCompressionMethod() const;
+    virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
     virtual void pack(OutputFile *fo);
     virtual void unpack(OutputFile *fo);
 
     virtual bool canPack();
-    virtual bool canUnpack();
+    virtual int canUnpack();
 
     // unpacker capabilities
     virtual bool canUnpackVersion(int version) const
-    {
-        return (version == 12);
-    }
+        {  return (version >= 12 && version <= 13); }
 
 protected:
+    virtual int readFileHeader();
+    virtual bool testUnpackVersion(int version) const;
+
+    virtual int buildLoader(const Filter *ft);
+
     unsigned pe_offset;
     bool isrtm;
-    bool readFileHeader();
 
     unsigned processImports();
     void processImports(unsigned);
@@ -78,28 +80,28 @@ protected:
     upx_byte *oimpdlls;
     unsigned soimpdlls;
 
-    int processRelocs();
-    void processRelocs(PackW32Pe__Reloc *);
+    void processRelocs();
+    void processRelocs(PackW32Pe_Reloc *);
     void rebuildRelocs(upx_byte *&);
     upx_byte *orelocs;
     unsigned sorelocs;
     upx_byte *oxrelocs;
     unsigned soxrelocs;
 
-    void processExports(PackW32Pe__Export *);
-    void processExports(PackW32Pe__Export *,unsigned);
+    void processExports(PackW32Pe_Export *);
+    void processExports(PackW32Pe_Export *,unsigned);
     void rebuildExports();
     upx_byte *oexport;
     unsigned soexport;
 
-    void processResources(PackW32Pe__Resource *);
-    void processResources(PackW32Pe__Resource *, unsigned);
+    void processResources(PackW32Pe_Resource *);
+    void processResources(PackW32Pe_Resource *, unsigned);
     void rebuildResources(upx_byte *&);
     upx_byte *oresources;
     unsigned soresources;
 
-    void processTls(PackW32Pe__Interval *);
-    void processTls(PackW32Pe__Reloc *,const PackW32Pe__Interval *,unsigned);
+    void processTls(PackW32Pe_Interval *);
+    void processTls(PackW32Pe_Reloc *,const PackW32Pe_Interval *,unsigned);
     void rebuildTls();
     upx_byte *otls;
     unsigned sotls;
@@ -113,18 +115,29 @@ protected:
     bool kernel32ordinal;
     unsigned tlsindex;
     unsigned rvamin;
+    unsigned cimports;              // rva of preprocessed imports
+    unsigned crelocs;               // rva of preprocessed fixups
+    int big_relocs;
+
+    void processLoadConf(PackW32Pe_Reloc *, const PackW32Pe_Interval *, unsigned);
+    void processLoadConf(PackW32Pe_Interval *);
+    upx_byte *oloadconf;
+    unsigned soloadconf;
+
+    bool use_dep_hack;
+    bool use_clear_dirty_stack;
 
     struct pe_header_t
     {
         // 0x0
-        char    _[4];                // pemagic
+        char    _[4];               // pemagic
         LE16    cpu;
         LE16    objects;
-        char    __[12];              // timestamp + reserved
+        char    __[12];             // timestamp + reserved
         LE16    opthdrsize;
         LE16    flags;
         // optional header
-        char    ___[4];              // coffmagic + linkerversion
+        char    ___[4];             // coffmagic + linkerversion
         LE32    codesize;
         // 0x20
         LE32    datasize;
@@ -136,19 +149,19 @@ protected:
         // nt specific fields
         LE32    imagebase;
         LE32    objectalign;
-        LE32    filealign;           // should set to 0x200 ?
+        LE32    filealign;          // should set to 0x200 ?
         // 0x40
-        char    ____[16];            // versions
+        char    ____[16];           // versions
         // 0x50
         LE32    imagesize;
         LE32    headersize;
-        LE32    chksum;              // should set to 0
+        LE32    chksum;             // should set to 0
         LE16    subsystem;
         LE16    dllflags;
         // 0x60
-        char    _____[20];           // stack + heap sizes
+        char    _____[20];          // stack + heap sizes
         // 0x74
-        LE32    ddirsentries;        // usually 16
+        LE32    ddirsentries;       // usually 16
 
         struct ddirs_t
         {

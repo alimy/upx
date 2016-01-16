@@ -8,8 +8,8 @@
 
 
                     The Ultimate Packer for eXecutables
-          Copyright (c) 1996-2004 Markus Oberhumer & Laszlo Molnar
-                       http://upx.sourceforge.net
+   Copyright (c) 1996-2006 Markus Oberhumer, Laszlo Molnar & John Reiser
+                        http://upx.sourceforge.net
 
 
 Here are some possible projects from which you can choose if you'd like to
@@ -42,8 +42,6 @@ More formats:
  - freebsd/386 (generic), freebsd/elf386 (specialized).
    Probably could share most of the linux code.
 
- - Windows CE
-
  - add support for self-extracting HTML pages using a Javascript stub
    (like the AlgART HTML Packer "AHP")
 
@@ -58,8 +56,6 @@ Existing formats:
 
  - dos/exe: implement filter support
 
- - dos/sys: add support for sys/exe combos
-
  - linux/i386:
      - use the new assembly preprocessor stuff (ie. process the file
        headers internally)
@@ -70,8 +66,7 @@ Existing formats:
 
  - win32/pe: display a nice dialog box in the stub in case
      of problems (like importing a DLL or function fails)
- - win32/pe: finer control over resource compression, per section
-     compression
+ - win32/pe: per section compression
 
 
 Compression ratio:

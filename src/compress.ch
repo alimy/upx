@@ -26,6 +26,20 @@
  */
 
 
+#if 1 && defined(UCL_USE_ASM)
+#  include <ucl/ucl_asm.h>
+#  define ucl_nrv2b_decompress_safe_8       ucl_nrv2b_decompress_asm_safe_8
+#  define ucl_nrv2b_decompress_safe_le16    ucl_nrv2b_decompress_asm_safe_le16
+#  define ucl_nrv2b_decompress_safe_le32    ucl_nrv2b_decompress_asm_safe_le32
+#  define ucl_nrv2d_decompress_safe_8       ucl_nrv2d_decompress_asm_safe_8
+#  define ucl_nrv2d_decompress_safe_le16    ucl_nrv2d_decompress_asm_safe_le16
+#  define ucl_nrv2d_decompress_safe_le32    ucl_nrv2d_decompress_asm_safe_le32
+#  define ucl_nrv2e_decompress_safe_8       ucl_nrv2e_decompress_asm_safe_8
+#  define ucl_nrv2e_decompress_safe_le16    ucl_nrv2e_decompress_asm_safe_le16
+#  define ucl_nrv2e_decompress_safe_le32    ucl_nrv2e_decompress_asm_safe_le32
+#endif
+
+
 /*************************************************************************
 //
 **************************************************************************/
@@ -41,6 +55,7 @@ unsigned upx_adler32(const void *buf, unsigned len, unsigned adler)
 #endif
 
 
+#if 0 /* UNUSED */
 #if defined(upx_crc32)
 unsigned upx_crc32(const void *buf, unsigned len, unsigned crc)
 {
@@ -50,6 +65,7 @@ unsigned upx_crc32(const void *buf, unsigned len, unsigned crc)
     return ucl_crc32(crc, (const ucl_bytep)buf, len);
 }
 #endif
+#endif /* UNUSED */
 
 
 /*************************************************************************
@@ -89,15 +105,10 @@ int upx_compress           ( const upx_bytep src, upx_uint  src_len,
     // prepare bit-buffer settings
     conf.bb_endian = 0;
     conf.bb_size = 0;
-    if (method >= M_NRV2B_LE32 && method <= M_NRV2E_LE16)
+    if (method >= M_NRV2B_LE32 && method <= M_CL1B_LE16)
     {
-        int n = (method - M_NRV2B_LE32) % 3;
-        if (n == 0)
-            conf.bb_size = 32;
-        else if (n == 1)
-            conf.bb_size = 8;
-        else
-            conf.bb_size = 16;
+        static const unsigned char sizes[3]={32,8,16};
+        conf.bb_size = sizes[(method - M_NRV2B_LE32) % 3];
     }
     else
         throwInternalError("unknown compression method");
@@ -119,6 +130,11 @@ int upx_compress           ( const upx_bytep src, upx_uint  src_len,
         r = ucl_nrv2e_99_compress(src, src_len, dst, dst_len,
                                   cb, level, &conf, result);
 #endif
+#if 0  /*{*/
+    else if M_IS_CL1B(method)
+        r = cl1b_compress(src, src_len, dst, dst_len,
+                                  cb, level, &conf, result);
+#endif  /*}*/
     else
         throwInternalError("unknown compression method");
 
@@ -171,6 +187,17 @@ int upx_decompress         ( const upx_bytep src, upx_uint  src_len,
         r = ucl_nrv2e_decompress_safe_le32(src,src_len,dst,dst_len,NULL);
         break;
 #endif
+#if 0  /*{*/
+    case M_CL1B_8:
+        r = cl1b_decompress_safe_8(src,src_len,dst,dst_len,NULL);
+        break;
+    case M_CL1B_LE16:
+        r = cl1b_decompress_safe_le16(src,src_len,dst,dst_len,NULL);
+        break;
+    case M_CL1B_LE32:
+        r = cl1b_decompress_safe_le32(src,src_len,dst,dst_len,NULL);
+        break;
+#endif  /*}*/
     default:
         throwInternalError("unknown decompression method");
         break;
@@ -225,6 +252,17 @@ int upx_test_overlap       ( const upx_bytep buf, upx_uint src_off,
         r = ucl_nrv2e_test_overlap_le32(buf,src_off,src_len,dst_len,NULL);
         break;
 #endif
+#if 0  /*{*/
+    case M_CL1B_8:
+        r = cl1b_test_overlap_8(buf,src_off,src_len,dst_len,NULL);
+        break;
+    case M_CL1B_LE16:
+        r = cl1b_test_overlap_le16(buf,src_off,src_len,dst_len,NULL);
+        break;
+    case M_CL1B_LE32:
+        r = cl1b_test_overlap_le32(buf,src_off,src_len,dst_len,NULL);
+        break;
+#endif  /*}*/
     default:
         throwInternalError("unknown decompression method");
         break;

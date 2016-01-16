@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2005 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2005 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -28,7 +28,20 @@
 
 // NOTE:
 //   to avoid endless problems with moving libc and kernel headers, this
-//   section is now completly freestanding
+//   section is now completely freestanding
+
+
+#if defined(__GNUC__)
+#  if defined(__GNUC_MINOR__) && defined(__GNUC_PATCHLEVEL__)
+#    define ACC_CC_GNUC         (__GNUC__ * 0x10000L + __GNUC_MINOR__ * 0x100 + __GNUC_PATCHLEVEL__)
+#  elif defined(__GNUC_MINOR__)
+#    define ACC_CC_GNUC         (__GNUC__ * 0x10000L + __GNUC_MINOR__ * 0x100)
+#  else
+#    define ACC_CC_GNUC         (__GNUC__ * 0x10000L)
+#  endif
+#endif
+
+#define ACC_UNUSED(var)         ((void) var)
 
 
 /*************************************************************************
@@ -37,13 +50,17 @@
 
 // <stddef.h>
 typedef long ptrdiff_t;
+typedef long ssize_t;
 typedef unsigned long size_t;
 // <stdint.h>
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 typedef int int32_t;
 typedef unsigned uint32_t;
-#if defined(_WIN32) && !defined(__GNUC__)
+#if (ACC_CC_GNUC >= 0x020800ul)
+__extension__ typedef long long int64_t;
+__extension__ typedef unsigned long long uint64_t;
+#elif defined(_WIN32)
 typedef __int64 int64_t;
 typedef unsigned __int64 uint64_t;
 #else
@@ -73,11 +90,16 @@ struct timespec {
 
 // misc constants
 
+#if defined(__amd64__) || defined(__powerpc64__)
+#define PAGE_MASK       (~0ul<<12)   // discards the offset, keeps the page
+#define PAGE_SIZE       ( 1ul<<12)
+#elif defined(__i386__) || defined(__powerpc__)
+#define PAGE_MASK       (~0ul<<12)   // discards the offset, keeps the page
+#define PAGE_SIZE       ( 1ul<<12)
+#endif
+
 #define SEEK_SET        0
 #define SEEK_CUR        1
-
-#define PAGE_MASK       (~0u<<12)   // discards the offset, keeps the page
-#define PAGE_SIZE       ( 1u<<12)
 
 #define O_RDONLY        00
 #define O_WRONLY        01
@@ -94,11 +116,9 @@ struct timespec {
 #define F_SETFD         2
 #define FD_CLOEXEC      1
 
-
 // <errno.h>
 #define ENOENT          2
 #define EINTR           4
-
 
 // <sys/mman.h>
 #define PROT_READ       0x1
@@ -110,7 +130,20 @@ struct timespec {
 #define MAP_PRIVATE     0x02
 #define MAP_FIXED       0x10
 #define MAP_ANONYMOUS   0x20
+#define MAP_DENYWRITE 0x0800  /* ETXTBSY */
 
+
+/*************************************************************************
+// i386 syscalls
+//
+// Because of different <asm/unistd.h> versions and subtle bugs
+// in both gcc and egcs we define all syscalls manually.
+//
+// Also, errno conversion is not necessary in our case, and we
+// use optimized assembly statements to further decrease the size.
+**************************************************************************/
+
+#if defined(__i386__)  /*{*/
 
 // <asm/unistd.h>
 #define __NR_exit                 1
@@ -139,17 +172,6 @@ struct timespec {
 #define __NR_nanosleep          162
 #define __NR_getcwd             183
 
-
-/*************************************************************************
-// syscalls
-//
-// Because of different <asm/unistd.h> versions and subtle bugs
-// in both gcc and egcs we define all syscalls manually.
-//
-// Also, errno conversion is not necessary in our case, and we
-// use optimized assembly statements to further decrease the size.
-**************************************************************************/
-
 #undef _syscall0
 #undef _syscall1
 #undef _syscall2
@@ -166,13 +188,13 @@ type name(void) \
 { \
     long __res; \
     if (Z1(__NR_##name)) { \
-        __asm__ __volatile__ ("push %1; popl %0; int $0x80" \
+        __asm__ __volatile__ ("push %[sysN]; popl %0; int $0x80" \
             : "=a" (__res) \
-            : "g" (__NR_##name)); \
+            : [sysN] "g" (__NR_##name)); \
     } else { \
         __asm__ __volatile__ ("int $0x80" \
             : "=a" (__res) \
-            : "a" (__NR_##name)); \
+            : [sysN] "a" (__NR_##name)); \
     } \
     return (type) __res; \
 }
@@ -180,96 +202,106 @@ type name(void) \
 #define _syscall1(type,name,type1,arg1) \
 type name(type1 arg1) \
 { \
-    long __res; \
+    long __res, junk; \
     if (Z1(__NR_##name)) { \
         if (Z0(arg1)) { \
-            __asm__ __volatile__ ("xorl %%ebx,%%ebx; push %1; popl %0; int $0x80" \
+            __asm__ __volatile__ ("xorl %%ebx,%%ebx; push %[sysN]; popl %0; int $0x80" \
                 : "=a" (__res) \
-                : "g" (__NR_##name) \
+                : [sysN] "g" (__NR_##name) \
                 : "ebx"); \
         } else if (Z1(arg1)) { \
-            __asm__ __volatile__ ("push %2; popl %%ebx; push %1; popl %0; int $0x80" \
+            __asm__ __volatile__ ("push %[a1]; popl %%ebx; push %[sysN]; popl %0; int $0x80" \
                 : "=a" (__res) \
-                : "g" (__NR_##name),"g" ((long)(arg1)) \
+                : [sysN] "g" (__NR_##name), [a1] "g" ((long)(arg1)) \
                 : "ebx"); \
         } else { \
-            __asm__ __volatile__ ("push %1; popl %0; int $0x80" \
-                : "=a" (__res) \
-                : "g" (__NR_##name),"b" ((long)(arg1))); \
+            __asm__ __volatile__ ("push %[sysN]; popl %0; int $0x80" \
+                : "=a" (__res), "=b" (junk) \
+                : [sysN] "g" (__NR_##name),"b" ((long)(arg1))); \
         } \
     } else { \
         __asm__ __volatile__ ("int $0x80" \
-            : "=a" (__res) \
+            : "=a" (__res), "=b" (junk) \
             : "a" (__NR_##name),"b" ((long)(arg1))); \
     } \
     return (type) __res; \
 }
 
-// special for mmap; somehow Z0(arg1) and Z1(arg1) do not work
-#define _syscall1m(type,name,type1,arg1) \
-type name(type1 arg1) \
+#define _syscall1nr(name,type1,arg1) \
+void __attribute__((__noreturn__)) name(type1 arg1) \
 { \
-    long __res; \
-            __asm__ __volatile__ ("push %1; popl %0; int $0x80" \
-                : "=a" (__res) \
-                : "g" (__NR_##name),"b" ((long)(arg1))); \
-    return (type) __res; \
+    if (Z1(__NR_##name)) { \
+        if (Z0(arg1)) { \
+            __asm__ __volatile__ ("xorl %%ebx,%%ebx; push %0; popl %%eax; int $0x80" \
+              : : "g" (__NR_##name) ); \
+        } else if (Z1(arg1)) { \
+            __asm__ __volatile__ ("push %[a1]; popl %%ebx; push %[sysN]; popl %%eax; int $0x80" \
+              : : [sysN] "g" (__NR_##name), [a1] "g" ((long)(arg1)) ); \
+        } else { \
+            __asm__ __volatile__ ("push %0; popl %%eax; int $0x80" \
+              : : "g" (__NR_##name),"b" ((long)(arg1))); \
+        } \
+    } else { \
+        __asm__ __volatile__ ("int $0x80" \
+            : : "a" (__NR_##name),"b" ((long)(arg1))); \
+    } \
+    for(;;) ; \
 }
 
 #define _syscall2(type,name,type1,arg1,type2,arg2) \
 type name(type1 arg1,type2 arg2) \
 { \
-    long __res; \
+    long __res, junkb, junkc; \
     if (Z1(__NR_##name)) { \
         if (Z0(arg1) && Z0(arg2)) { \
-            __asm__ __volatile__ ("xorl %%ecx,%%ecx; xorl %%ebx,%%ebx; push %1; popl %0; int $0x80" \
+            __asm__ __volatile__ ("xorl %%ecx,%%ecx; xorl %%ebx,%%ebx; push %[sysN]; popl %0; int $0x80" \
                 : "=a" (__res) \
-                : "g" (__NR_##name) \
+                : [sysN] "g" (__NR_##name) \
                 : "ebx", "ecx"); \
         } else if (Z0(arg1) && Z1(arg2)) { \
-            __asm__ __volatile__ ("push %2; popl %%ecx; xorl %%ebx,%%ebx; push %1; popl %0; int $0x80" \
+            __asm__ __volatile__ ("push %[a2]; popl %%ecx; xorl %%ebx,%%ebx; push %[sysN]; popl %0; int $0x80" \
                 : "=a" (__res) \
-                : "g" (__NR_##name),"g" ((long)(arg2)) \
+                : [sysN] "g" (__NR_##name), [a2] "g" ((long)(arg2)) \
                 : "ebx", "ecx"); \
         } else if (Z1(arg1) && Z0(arg2)) { \
-            __asm__ __volatile__ ("xorl %%ecx,%%ecx; push %2; popl %%ebx; push %1; popl %0; int $0x80" \
+            __asm__ __volatile__ ("xorl %%ecx,%%ecx; push %[a1]; popl %%ebx; push %[sysN]; popl %0; int $0x80" \
                 : "=a" (__res) \
-                : "g" (__NR_##name),"g" ((long)(arg1)) \
+                : [sysN] "g" (__NR_##name), [a1] "g" ((long)(arg1)) \
                 : "ebx", "ecx"); \
         } else if (Z1(arg1) && Z1(arg2)) { \
-            __asm__ __volatile__ ("push %3; popl %%ecx; push %2; popl %%ebx; push %1; popl %0; int $0x80" \
+            __asm__ __volatile__ ("push %[a2]; popl %%ecx; push %[a1]; popl %%ebx; push %[sysN]; popl %0; int $0x80" \
                 : "=a" (__res) \
-                : "g" (__NR_##name),"g" ((long)(arg1)),"g" ((long)(arg2)) \
+                : [sysN] "g" (__NR_##name), [a1] "g" ((long)(arg1)), [a2] "g" ((long)(arg2)) \
                 : "ebx", "ecx"); \
         } else if (Z0(arg1)) { \
-            __asm__ __volatile__ ("xorl %%ebx,%%ebx; push %1; popl %0; int $0x80" \
-                : "=a" (__res) \
-                : "g" (__NR_##name),"c" ((long)(arg2)) \
+            __asm__ __volatile__ ("xorl %%ebx,%%ebx; push %[sysN]; popl %0; int $0x80" \
+                : "=a" (__res), "=c" (junkc) \
+                : [sysN] "g" (__NR_##name),"c" ((long)(arg2)) \
                 : "ebx"); \
         } else if (Z0(arg2)) { \
-            __asm__ __volatile__ ("push %1; popl %0; xorl %%ecx,%%ecx; int $0x80" \
-                : "=a" (__res) \
-                : "g" (__NR_##name),"b" ((long)(arg1)) \
+            __asm__ __volatile__ ("push %[sysN]; popl %0; xorl %%ecx,%%ecx; int $0x80" \
+                : "=a" (__res), "=b" (junkb) \
+                : [sysN] "g" (__NR_##name),"b" ((long)(arg1)) \
                 : "ecx"); \
         } else if (Z1(arg1)) { \
-            __asm__ __volatile__ ("push %1; popl %0; push %2; popl %%ebx; int $0x80" \
-                : "=a" (__res) \
-                : "g" (__NR_##name),"g" ((long)(arg1)),"c" ((long)(arg2)) \
+            __asm__ __volatile__ ("push %[sysN]; popl %0; push %[a1]; popl %%ebx; int $0x80" \
+                : "=a" (__res), "=c" (junkc) \
+                : [sysN] "g" (__NR_##name), [a1] "g" ((long)(arg1)),"c" ((long)(arg2)) \
                 : "ebx"); \
         } else if (Z1(arg2)) { \
-            __asm__ __volatile__ ("push %1; popl %0; push %3; popl %%ecx; int $0x80" \
-                : "=a" (__res) \
-                : "g" (__NR_##name),"b" ((long)(arg1)),"g" ((long)(arg2)) \
+            __asm__ __volatile__ ("push %[sysN]; popl %0; push %[a2]; popl %%ecx; int $0x80" \
+                : "=a" (__res), "=b" (junkb) \
+                : [sysN] "g" (__NR_##name),"b" ((long)(arg1)), [a2] "g" ((long)(arg2)) \
                 : "ecx"); \
         } else { \
-            __asm__ __volatile__ ("push %1; popl %0; int $0x80" \
-                : "=a" (__res) \
-                : "g" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2))); \
+            __asm__ __volatile__ ("push %[sysN]; popl %0; int $0x80" \
+                : "=a" (__res), "=b" (junkb), "=c" (junkc) \
+                : [sysN] "g" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2))); \
         } \
     } else { \
         __asm__ __volatile__ ("int $0x80" \
-            : "=a" (__res) \
-            : "a" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2))); \
+            : "=a" (__res), "=b" (junkb), "=c" (junkc) \
+            : [sysN] "a" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2))); \
     } \
     return (type) __res; \
 }
@@ -277,16 +309,16 @@ type name(type1 arg1,type2 arg2) \
 #define _syscall3(type,name,type1,arg1,type2,arg2,type3,arg3) \
 type name(type1 arg1,type2 arg2,type3 arg3) \
 { \
-    long __res; \
+    long __res, junkb, junkc, junkd; \
     if (Z1(__NR_##name)) { \
-        __asm__ __volatile__ ("push %1; popl %0; int $0x80" \
-            : "=a" (__res) \
-            : "g" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
+        __asm__ __volatile__ ("push %[sysN]; popl %0; int $0x80" \
+            : "=a" (__res), "=b" (junkb), "=c" (junkc), "=d" (junkd) \
+            : [sysN] "g" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
                                 "d" ((long)(arg3))); \
     } else { \
         __asm__ __volatile__ ("int $0x80" \
-            : "=a" (__res) \
-            : "a" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
+            : "=a" (__res), "=b" (junkb), "=c" (junkc), "=d" (junkd) \
+            : [sysN] "a" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
                                 "d" ((long)(arg3))); \
     } \
     return (type) __res; \
@@ -301,7 +333,7 @@ static inline _syscall1(int,adjtimex,struct timex *,ntx)
 static inline _syscall1(void *,brk,void *,high)
 static inline _syscall1(int,close,int,fd)
 static inline _syscall3(int,execve,const char *,file,char **,argv,char **,envp)
-static inline _syscall1(int,_exit,int,exitcode)
+static inline _syscall1nr(_exit,int,exitcode)
 static inline _syscall3(int,fcntl,int,fd,int,cmd,long,arg)
 static inline _syscall2(int,ftruncate,int,fd,size_t,len)
 static inline _syscall0(pid_t,fork)
@@ -310,21 +342,31 @@ static inline _syscall0(pid_t,getpid)
 static inline _syscall2(int,getrusage,int,who,struct rusage *,usage);
 static inline _syscall2(int,gettimeofday,struct timeval *,tv,void *,tz)
 static inline _syscall3(off_t,lseek,int,fd,off_t,offset,int,whence)
-static inline _syscall1m(caddr_t,mmap,const int *,args)
 static inline _syscall3(int,mprotect,void *,addr,size_t,len,int,prot)
 static inline _syscall3(int,msync,const void *,start,size_t,length,int,flags)
 static inline _syscall2(int,munmap,void *,start,size_t,length)
 static inline _syscall2(int,nanosleep,const struct timespec *,rqtp,struct timespec *,rmtp)
 static inline _syscall3(int,open,const char *,file,int,flag,int,mode)
 static inline _syscall1(int,personality,unsigned long,persona)
-static inline _syscall3(int,read,int,fd,char *,buf,off_t,count)
+static inline _syscall3(ssize_t,read,int,fd,void *,buf,size_t,count)
 static inline _syscall3(pid_t,waitpid,pid_t,pid,int *,wait_stat,int,options)
-static inline _syscall3(int,write,int,fd,const char *,buf,off_t,count)
+static inline _syscall3(ssize_t,write,int,fd,const void *,buf,size_t,count)
 static inline _syscall1(int,unlink,const char *,file)
-
 
 #undef Z0
 #undef Z1
+
+#else  /*}{ generic */
+
+void *brk(void *);
+int close(int);
+void *mmap(void *, size_t, int, int, int, off_t);
+int munmap(void *, size_t);
+int mprotect(void const *, size_t, int);
+int open(char const *, unsigned, unsigned);
+ssize_t read(int, void *, size_t);
+
+#endif  /*}*/
 
 
 /*************************************************************************
@@ -373,6 +415,24 @@ typedef struct
 
 typedef struct
 {
+  unsigned char e_ident[EI_NIDENT];
+  Elf64_Half    e_type;
+  Elf64_Half    e_machine;
+  Elf64_Word    e_version;
+  Elf64_Addr    e_entry;
+  Elf64_Off     e_phoff;
+  Elf64_Off     e_shoff;
+  Elf64_Word    e_flags;
+  Elf64_Half    e_ehsize;
+  Elf64_Half    e_phentsize;
+  Elf64_Half    e_phnum;
+  Elf64_Half    e_shentsize;
+  Elf64_Half    e_shnum;
+  Elf64_Half    e_shstrndx;
+} Elf64_Ehdr;
+
+typedef struct
+{
   Elf32_Word    p_type;
   Elf32_Off     p_offset;
   Elf32_Addr    p_vaddr;
@@ -385,14 +445,32 @@ typedef struct
 
 typedef struct
 {
-  int a_type;
+  Elf64_Word    p_type;
+  Elf64_Word    p_flags;
+  Elf64_Off     p_offset;
+  Elf64_Addr    p_vaddr;
+  Elf64_Addr    p_paddr;
+  Elf64_Xword   p_filesz;
+  Elf64_Xword   p_memsz;
+  Elf64_Xword   p_align;
+} Elf64_Phdr;
+
+typedef struct
+{
+  uint32_t a_type;
   union {
-      long a_val;
-      void *a_ptr;
-      void (*a_fcn) (void);
+      uint32_t a_val;
   } a_un;
 } Elf32_auxv_t;
 
+typedef struct
+{
+  uint64_t a_type;
+  union
+    {
+      uint64_t a_val;
+    } a_un;
+} Elf64_auxv_t;
 
 #define AT_NULL         0
 #define AT_IGNORE       1
@@ -402,6 +480,7 @@ typedef struct
 #define AT_PAGESZ       6
 #define AT_ENTRY        9
 
+#define ET_EXEC         2
 #define ET_DYN          3
 
 #define PF_X            1
@@ -441,8 +520,8 @@ typedef unsigned int nrv_uint32;
 
 // From ../p_unix.h
 struct b_info {     // 12-byte header before each compressed block
-    unsigned sz_unc;            // uncompressed_size
-    unsigned sz_cpr;            // compressed_size
+    uint32_t sz_unc;            // uncompressed_size
+    uint32_t sz_cpr;            // compressed_size
     unsigned char b_method;     // compression algorithm
     unsigned char b_ftid;       // filter id
     unsigned char b_cto8;       // filter parameter
@@ -469,16 +548,6 @@ struct p_info       // 12-byte packed program header follows stub loader
 #define CONST_CAST(type, var) \
     ((type) ((uintptr_t) (var)))
 
-
-#if defined(__GNUC__)
-#  if defined(__GNUC_MINOR__) && defined(__GNUC_PATCHLEVEL__)
-#    define ACC_CC_GNUC         (__GNUC__ * 0x10000L + __GNUC_MINOR__ * 0x100 + __GNUC_PATCHLEVEL__)
-#  elif defined(__GNUC_MINOR__)
-#    define ACC_CC_GNUC         (__GNUC__ * 0x10000L + __GNUC_MINOR__ * 0x100)
-#  else
-#    define ACC_CC_GNUC         (__GNUC__ * 0x10000L)
-#  endif
-#endif
 
 #if (ACC_CC_GNUC >= 0x030300)
 #  define __attribute_cdecl     __attribute__((__cdecl__, __used__))

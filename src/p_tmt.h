@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   Markus F.X.J. Oberhumer   Laszlo Molnar
+   markus@oberhumer.com      ml1050@users.sourceforge.net
  */
 
 
@@ -39,22 +39,28 @@ class PackTmt : public Packer
     typedef Packer super;
 public:
     PackTmt(InputFile *f);
-    virtual int getVersion() const { return 11; }
+    virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_TMT_ADAM; }
     virtual const char *getName() const { return "tmt/adam"; }
-    virtual int getCompressionMethod() const;
+    virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
     virtual void pack(OutputFile *fo);
     virtual void unpack(OutputFile *fo);
 
     virtual bool canPack();
-    virtual bool canUnpack();
+    virtual int canUnpack();
 
 protected:
-    bool readFileHeader();
+    virtual int readFileHeader();
+
+    virtual unsigned findOverlapOverhead(const upx_bytep buf,
+                                         unsigned range = 0,
+                                         unsigned upper_limit = ~0u) const;
+    virtual int buildLoader(const Filter *ft);
 
     unsigned adam_offset;
+    int big_relocs;
 
     struct tmt_header_t
     {
@@ -64,10 +70,7 @@ protected:
         LE32 entry;
         char ___[12];   // esp,numfixups,flags
         LE32 relocsize;
-    }
-    __attribute_packed;
-
-    tmt_header_t ih, oh;
+    } ih, oh;
 };
 
 

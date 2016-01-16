@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   Markus F.X.J. Oberhumer   Laszlo Molnar
+   markus@oberhumer.com      ml1050@users.sourceforge.net
  */
 
 
@@ -39,20 +39,22 @@ class PackWcle : public Packer, public LeFile
     typedef Packer super;
 public:
     PackWcle(InputFile *f) : super(f), LeFile(f){};
-    virtual int getVersion() const { return 12; }
+    virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_WATCOM_LE; }
     virtual const char *getName() const { return "watcom/le"; }
-    virtual int getCompressionMethod() const;
+    virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
     virtual void pack(OutputFile *fo);
     virtual void unpack(OutputFile *fo);
 
     virtual bool canPack();
-    virtual bool canUnpack();
+    virtual int canUnpack();
 
 protected:
     virtual void handleStub(OutputFile *fo);
+
+    virtual int buildLoader(const Filter *ft);
 
     virtual void readObjectTable();
     virtual void encodeObjectTable();
@@ -66,7 +68,7 @@ protected:
     virtual void encodeEntryTable();
     virtual void decodeEntryTable();
 
-    virtual int  preprocessFixups();
+    virtual void preprocessFixups();
     virtual void encodeFixups();
     virtual void decodeFixups();
 
@@ -74,8 +76,12 @@ protected:
     virtual void decodeImage();
 
     static void virt2rela(const le_object_table_entry_t *, unsigned *objn, unsigned *addr);
+
+    // temporary copy of the object descriptors
+    MemBuffer iobject_desc;
+
+    int big_relocs;
     bool has_extra_code;
-    unsigned overlapoh;
     unsigned neweip;
 };
 

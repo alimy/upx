@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   Markus F.X.J. Oberhumer   Laszlo Molnar
+   markus@oberhumer.com      ml1050@users.sourceforge.net
  */
 
 
@@ -44,8 +44,7 @@ class FilterImp;
 // call throwFilterException() - this will cause the compression
 // to fail.
 //
-// The return value of unfilters can/should be ignored. They throw
-// exceptions in case of errors.
+// Unfilters throw exceptions in case of errors.
 //
 // The main idea behind filters is to convert relative jumps and calls
 // to absolute addresses so that the buffer compresses better.
@@ -58,9 +57,11 @@ public:
     void init(int id=0, unsigned addvalue=0);
 
     bool filter(upx_byte *buf, unsigned buf_len);
-    bool unfilter(upx_byte *buf, unsigned buf_len, bool verify_checksum=false);
-    bool verifyUnfilter();
+    void unfilter(upx_byte *buf, unsigned buf_len, bool verify_checksum=false);
+    void verifyUnfilter();
     bool scan(const upx_byte *buf, unsigned buf_len);
+
+    static bool isValidFilter(int filter_id);
 
 public:
     // Will be set by each call to filter()/unfilter().
@@ -74,7 +75,6 @@ public:
 
     // Input parameters used by various filters.
     unsigned addvalue;
-    int forced_cto;
     const int *preferred_ctos;
 
     // Input/output parameters used by various filters
@@ -84,7 +84,9 @@ public:
     unsigned calls;
     unsigned noncalls;
     unsigned wrongcalls;
+    unsigned firstcall;
     unsigned lastcall;
+    unsigned n_mru;  // ctojr only
 
     // Read only.
     int id;
@@ -98,7 +100,7 @@ private:
 // We don't want a full OO interface here because of
 // certain implementation speed reasons.
 //
-// This class is strictly private to Filter - don't look.
+// This class is private to Filter - don't look.
 **************************************************************************/
 
 class FilterImp
@@ -106,18 +108,23 @@ class FilterImp
     friend class Filter;
 
 private:
-    struct f_t {
-        int id;
+    struct FilterEntry
+    {
+        int id;                             // 0 .. 255
         unsigned min_buf_len;
         unsigned max_buf_len;
-        int (*f)(Filter *);
-        int (*u)(Filter *);
-        int (*s)(Filter *);
+        int (*do_filter)(Filter *);         // filter a buffer
+        int (*do_unfilter)(Filter *);       // unfilter a buffer
+        int (*do_scan)(Filter *);           // scan a buffer
     };
-    static const f_t filters[];
-    static const int n_filters;
 
-    static const f_t *getFilter(int id);
+    // get a specific filter entry
+    static const FilterEntry *getFilter(int id);
+
+private:
+    // strictly private filter database
+    static const FilterEntry filters[];
+    static const int n_filters;             // number of filters[]
 };
 
 

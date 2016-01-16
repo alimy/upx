@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -203,8 +203,8 @@ protected:
     upx_byte *ofixups;
     upx_byte *inonres_names;
     upx_byte *ononres_names;
-    upx_byte *iimage;
-    upx_byte *oimage;
+    MemBuffer iimage;
+    MemBuffer oimage;
     upx_byte *ientries;
     upx_byte *oentries;
 
@@ -219,8 +219,8 @@ protected:
 
 private:
     // disable copy and assignment
-    LeFile(LeFile const &); // {}
-    LeFile& operator= (LeFile const &); // { return *this; }
+    LeFile(const LeFile &); // {}
+    LeFile& operator= (const LeFile &); // { return *this; }
 };
 
 

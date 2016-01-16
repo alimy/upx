@@ -2,8 +2,8 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2004 Laszlo Molnar
+;  Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) 1996-2006 Laszlo Molnar
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -29,10 +29,14 @@
 ; ------------- COPYRIGHT -------------
 
                 db      10,0
-                db      '$Info: This file is packed with the UPX executable packer http://upx.sf.net $'
+                db      '$Info: '
+                db      'This file is packed with the UPX executable packer '
+                db      'http://upx.sf.net $'
                 db      10,0
                 db      '$Id: UPX '
-                db      UPX_VERSION_STRING4
-                db      ' Copyright (C) 1996-2004 the UPX Team. All Rights Reserved. $'
+                db      'UPXV'
+                db      ' Copyright (C) 1996-UPXY the UPX Team. All Rights Reserved. $'
                 db      10,0
 
+
+; vi:ts=8:et:nowrap

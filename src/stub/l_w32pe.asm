@@ -2,8 +2,8 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2004 Laszlo Molnar
+;  Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) 1996-2006 Laszlo Molnar
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -200,10 +200,70 @@ relhi0:
 %endif; __PERELHIZ__
 
 ; =============
+%ifdef  __PEDEPHAK__
+                mov     ebp, [esi + 'VPRO']     ; VirtualProtect
+                lea     edi, [esi + 'IMGB']
+                mov     ebx, 'IMGL'             ; 0x1000 or 0x2000
+
+                push    eax                     ; provide 4 bytes stack
+
+                push    esp                     ; &lpflOldProtect on stack
+                push    byte 4                  ; PAGE_READWRITE
+                push    ebx
+                push    edi
+                call    ebp
+
+  %if 0
+                or      eax, eax
+                jz      pedep9                  ; VirtualProtect failed
+  %endif
+
+                lea     eax, [edi + 'SWRI']
+                and     byte [eax], 0x7f        ; marks UPX0 non writeable
+                and     byte [eax + 0x28], 0x7f ; marks UPX1 non writeable
+
+  %if 0
+                push    esp
+                push    byte 2                  ; PAGE_READONLY
+  %else
+                pop     eax
+                push    eax
+                push    esp
+                push    eax                     ; restore protection
+  %endif
+                push    ebx
+                push    edi
+                call    ebp
+
+pedep9:
+                pop     eax                     ; restore stack
+%endif; __PEDEPHAX__
 
 ;       __PEMAIN20__
                 popad
+
+
+; clear the dirty stack
+%macro          clearstack128  1
+                lea     %1, [esp - 128]
+%%clearst0:
+                push    byte 0
+                cmp     esp, %1
+                jnz     %%clearst0
+                sub     esp, byte -128
+%endmacro
+
+%ifdef  __PERETURN_CLEARSTACK__
+                clearstack128 eax
+%endif; __PERETURN_CLEARSTACK9__
+%ifdef  __PEDOJUMP_CLEARSTACK__
+                clearstack128 eax
+%endif; __PEDOJUMP_CLEARSTACK9__
+
+
+;       __PEMAIN21__
 reloc_end_jmp:
+
 %ifdef  __PERETURN__
                 xor     eax, eax
                 inc     eax

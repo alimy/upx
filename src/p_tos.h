@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -39,17 +39,17 @@ class PackTos : public Packer
     typedef Packer super;
 public:
     PackTos(InputFile *f);
-    virtual int getVersion() const { return 11; }
+    virtual int getVersion() const { return 13; }
     virtual int getFormat() const { return UPX_F_ATARI_TOS; }
     virtual const char *getName() const { return "atari/tos"; }
-    virtual int getCompressionMethod() const;
+    virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
     virtual void pack(OutputFile *fo);
     virtual void unpack(OutputFile *fo);
 
     virtual bool canPack();
-    virtual bool canUnpack();
+    virtual int canUnpack();
 
     virtual void fileInfo();
 
@@ -57,8 +57,8 @@ protected:
     virtual const upx_byte *getLoader() const;
     virtual int getLoaderSize() const;
 
-    bool readFileHeader();
-    bool checkFileHeader();
+    virtual int readFileHeader();
+    virtual bool checkFileHeader();
 
     struct tos_header_t
     {

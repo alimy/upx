@@ -35,10 +35,45 @@
                 SECTION .text
                 CPU     8086
 
+;       __DEVICEENTRY__
+
+                dd      -1
+                dw      0
+                dw      strategy        ; .sys header
+                dw      0               ; opendos wants this field untouched
+original_strategy:
+                dw      'ST'
+strategy:
+                push    cs
+                push    word [cs:original_strategy]
+                push    ax
+                push    bx
+                push    cx
+                push    dx
+                mov     ax, cs
+                add     ax, 'OS'        ; calculate normal EXE stack
+                mov     bx, 'OP'
+                mov     cx, ss
+                mov     dx, sp
+                mov     ss, ax          ; switch to stack EXE normally has
+                mov     sp, bx
+                push    cx              ; save device stack on EXE stack
+                push    dx
+                push    si
+                push    di
+                push    bp
+                push    ds
+                push    es
+                db      0x72            ; "jc 0xf9" but flag C is 0 => nop
+exe_as_device_entry:
+                stc                     ; flag C is 1
+                pushf
+
 ; =============
 ; ============= ENTRY POINT
 ; =============
 ;       __EXEENTRY__
+exe_entry:
                 mov     cx, 'CX'        ; first_copy_len/2
                 mov     si, 'SI'        ; cx*2-2
                 mov     di, si
@@ -47,7 +82,8 @@
 do_copy:
                 mov     ch, 0x80        ; 64 kbyte
                 mov     ax, cs
-                add     ax, 'DS'
+addaxds:
+                add     ax, 'DS'        ; MSB is referenced by the "sub" below
                 mov     ds, ax
                 add     ax, 'ES'
                 mov     es, ax
@@ -56,8 +92,11 @@ do_copy:
                 rep
                 movsw
                 cld
-
-                sub     [byte cs:si+do_copy+6+2], byte 0x10
+;       __DEVICESUB__
+                sub     [byte cs:si + addaxds + 4], byte 0x10
+;       __EXESUB__
+                sub     [byte cs:si + addaxds - exe_entry + 4], byte 0x10
+;       __JNCDOCOPY__
                 jnc     do_copy
                 xchg    ax, dx
                 scasw
@@ -152,6 +191,26 @@ reloc_5:
                 pop     es
                 push    es
                 pop     ds
+
+;       __DEVICEEND__
+                popf
+                jc      loaded_as_exe
+                pop     es
+                pop     ds
+                pop     bp
+                pop     di
+                pop     si
+                pop     bx              ; get original device SS:SP
+                pop     ax
+                mov     ss, ax          ; switch to device driver stack
+                mov     sp, bx
+                pop     dx
+                pop     cx
+                pop     bx
+                pop     ax
+                retf                    ; return to original strategy
+
+loaded_as_exe:
 %ifdef  __EXESTACK__
                 lea     ax, ['SS'+bp]
                 mov     ss, ax

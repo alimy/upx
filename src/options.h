@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -49,12 +49,13 @@ struct options_t {
     int method;
     int level;          // compression level 1..10
     int filter;         // preferred filter from Packer::getFilters()
+    bool all_methods;   // try all available compression methods ?
     bool all_filters;   // try all available filters ?
+    bool no_filter;     // force no filter
 
     // other options
     int backup;
     int console;
-    int debug;
     int force;
     int info_mode;
     bool ignorewarn;
@@ -64,6 +65,14 @@ struct options_t {
     int small;
     int verbose;
     bool to_stdout;
+
+    // debug options
+    struct {
+        int debug_level;
+        const char *dump_stub_loader;
+        char fake_stub_version[4+1];    // for internal debugging
+        char fake_stub_year[4+1];       // for internal debugging
+    } debug;
 
     // overlay handling
     enum {
@@ -98,32 +107,43 @@ struct options_t {
 
     // options for various executable formats
     struct {
-        bool force_stub;
-        bool no_reloc;
-    } dos;
+        bool split_segments;
+    } atari_tos;
     struct {
         bool coff;
-    } djgpp2;
+    } djgpp2_coff;
     struct {
-        bool split_segments;
-    } tos;
+        bool force_stub;
+        bool no_reloc;
+    } dos_exe;
+    struct {
+        bool boot_only;
+        bool no_align;
+        bool do_8bit;
+    } ps1_exe;
     struct {
         unsigned blocksize;
+        bool force_execve;          // force the linux/386 execve format
+        bool is_ptinterp;           // is PT_INTERP, so don't adjust auxv_t
+        bool use_ptinterp;          // use PT_INTERP /opt/upx/run
+        bool make_ptinterp;         // make PT_INTERP [ignore current file!]
+        enum { SCRIPT_MAX = 32 };
+        const char *script_name;
     } o_unix;
     struct {
         bool le;
-    } wcle;
+    } watcom_le;
     struct {
         int compress_exports;
         int compress_icons;
         int compress_resources;
         signed char compress_rt[25];    // 25 == RT_LAST
         int strip_relocs;
-    } w32pe;
+        const char *keep_resource;
+    } win32_pe;
 };
 
-extern struct options_t global_options;
-extern struct options_t * volatile opt;
+extern struct options_t *opt;
 
 
 #endif /* already included */

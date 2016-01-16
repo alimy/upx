@@ -36,17 +36,9 @@
 // ACC
 **************************************************************************/
 
-#include "acc/acc.h"
+#include "miniacc.h"
 #if ((ACC_OS_WIN32 || ACC_OS_WIN64) && ACC_CC_MWERKS) && defined(__MSL__)
-# undef HAVE_UTIME_H /* this pulls in <windows.h> */
-#endif
-#include "acc/acc_incd.h"
-#include "acc/acc_ince.h"
-#include "acc/acc_lib.h"
-#if (ACC_OS_CYGWIN || ACC_OS_DOS16 || ACC_OS_DOS32 || ACC_OS_EMX || ACC_OS_OS2 || ACC_OS_OS216 || ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
-#  if defined(INVALID_HANDLE_VALUE) || defined(MAKEWORD) || defined(RT_CURSOR)
-#    error "something pulled in <windows.h>"
-#  endif
+#  undef HAVE_UTIME_H /* this pulls in <windows.h> */
 #endif
 
 
@@ -95,12 +87,33 @@
 #  pragma warning(disable: 4512)        // W4: 'class': assignment operator could not be generated
 #  pragma warning(disable: 4514)        // W4: 'function': unreferenced inline function has been removed
 #  pragma warning(disable: 4710)        // W4: 'function': function not inlined
+#  if (_MSC_VER >= 1300)
+#    pragma warning(disable: 4625)      // W4: 'class' : copy constructor could not be generated because a base class copy constructor is inaccessible
+#    pragma warning(disable: 4626)      // W4: 'class' : assignment operator could not be generated because a base class assignment operator is inaccessible
+#    pragma warning(disable: 4711)      // W4: 'function' selected for automatic inline expansion
+#    pragma warning(disable: 4820)      // W4: 'struct' : 'x' bytes padding added after member 'member'
+#  endif
+#  if (_MSC_VER >= 1400)
+#    pragma warning(disable: 4996)      // W1: 'function': was declared deprecated
+#  endif
 #elif (ACC_CC_WATCOMC)
 #  if (__WATCOMC__ < 1100)
 #    error "need Watcom C++ 11.0c or newer"
 #  endif
 #  if defined(__cplusplus)
 #    pragma warning 656 9               // w5: define this function inside its class definition (may improve code quality)
+#  endif
+#endif
+
+
+#define ACC_WANT_ACC_INCD_H 1
+#define ACC_WANT_ACC_INCE_H 1
+#define ACC_WANT_ACC_LIB_H 1
+#define ACC_WANT_ACC_CXX_H 1
+#include "miniacc.h"
+#if (ACC_OS_CYGWIN || ACC_OS_DOS16 || ACC_OS_DOS32 || ACC_OS_EMX || ACC_OS_OS2 || ACC_OS_OS216 || ACC_OS_WIN16 || ACC_OS_WIN32 || ACC_OS_WIN64)
+#  if defined(INVALID_HANDLE_VALUE) || defined(MAKEWORD) || defined(RT_CURSOR)
+#    error "something pulled in <windows.h>"
 #  endif
 #endif
 
@@ -133,7 +146,7 @@
 
 
 #if !defined(WITH_UCL)
-#  error "please set UCLDIR in the Makefile"
+#  define WITH_UCL 1
 #endif
 #if defined(WITH_UCL)
 #  include <ucl/uclconf.h>
@@ -274,17 +287,21 @@
 
 
 // avoid warnings about shadowing global functions
+#undef index
 #define basename            upx_basename
 #define index               upx_index
 #define outp                upx_outp
 
+#undef PAGE_MASK
+#undef PAGE_SIZE
+
 
 #undef __attribute_packed
-#if (ACC_CC_GNUC || ACC_CC_INTELC)
-#  if (1 && (ACC_ARCH_IA32))
+#if (ACC_CC_GNUC || ACC_CC_INTELC || ACC_CC_PATHSCALE)
+#  if (1 && (ACC_ARCH_I386))
 #    define __attribute_packed
 #  else
-#    define __attribute_packed    __attribute__((__packed__,__aligned__(1)))
+#    define __attribute_packed      __attribute__((__packed__,__aligned__(1)))
 #  endif
 #else
 #  define __attribute_packed
@@ -309,20 +326,20 @@
 #if 1
 #  define __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b) { \
      typedef a acc_tmp_a_t; typedef b acc_tmp_b_t; \
-     struct acc_tmp_t { acc_tmp_b_t x; acc_tmp_a_t y; acc_tmp_b_t z[7]; }; \
+     struct acc_tmp_t { acc_tmp_b_t x; acc_tmp_a_t y; acc_tmp_b_t z[7]; } __attribute_packed; \
      COMPILE_TIME_ASSERT(sizeof(struct acc_tmp_t) == 8*sizeof(b)+sizeof(a)) \
    }
 #else
 #  define __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b) { \
-     struct acc_tmp_t { b x; a y; b z[7]; }; \
+     struct acc_tmp_t { b x; a y; b z[7]; } __attribute_packed; \
      COMPILE_TIME_ASSERT(sizeof(struct acc_tmp_t) == 8*sizeof(b)+sizeof(a)) \
    }
 #endif
 
-#if defined(acc_alignof)
+#if defined(__acc_alignof)
 #  define COMPILE_TIME_ASSERT_ALIGNOF(a,b) \
      __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b) \
-     COMPILE_TIME_ASSERT(acc_alignof(a) == sizeof(b))
+     COMPILE_TIME_ASSERT(__acc_alignof(a) == sizeof(b))
 #else
 #  define COMPILE_TIME_ASSERT_ALIGNOF(a,b) \
      __COMPILE_TIME_ASSERT_ALIGNOF_SIZEOF(a,b)
@@ -409,10 +426,14 @@ inline void operator delete[](void *p)
 #define M_NRV2E_LE32    8
 #define M_NRV2E_8       9
 #define M_NRV2E_LE16    10
+#define M_CL1B_LE32     11
+#define M_CL1B_8        12
+#define M_CL1B_LE16     13
 
 #define M_IS_NRV2B(x)   ((x) >= M_NRV2B_LE32 && (x) <= M_NRV2B_LE16)
 #define M_IS_NRV2D(x)   ((x) >= M_NRV2D_LE32 && (x) <= M_NRV2D_LE16)
 #define M_IS_NRV2E(x)   ((x) >= M_NRV2E_LE32 && (x) <= M_NRV2E_LE16)
+#define M_IS_CL1B(x)    ((x) >= M_CL1B_LE32  && (x) <= M_CL1B_LE16)
 
 
 // Executable formats. Note: big endian types are >= 128.
@@ -434,8 +455,17 @@ inline void operator delete[](void *p)
 #define UPX_F_BVMLINUZ_i386     16
 #define UPX_F_ELKS_8086         17
 #define UPX_F_PS1_EXE           18
+#define UPX_F_VMLINUX_i386      19
+#define UPX_F_LINUX_ELFI_i386   20
+#define UPX_F_WINCE_ARM_PE      21
+#define UPX_F_LINUX_ELF64_AMD   22
+
+#define UPX_F_PLAIN_TEXT        127
+
 #define UPX_F_ATARI_TOS         129
 #define UPX_F_SOLARIS_SPARC     130
+#define UPX_F_MACH_PPC32        131
+#define UPX_F_LINUX_ELFPPC32    132
 
 
 #define UPX_MAGIC_LE32      0x21585055          /* "UPX!" */
@@ -462,7 +492,7 @@ inline void operator delete[](void *p)
 extern const char *progname;
 void init_options(struct options_t *o);
 bool set_ec(int ec);
-#if defined(__GNUC__)
+#if (ACC_CC_GNUC || ACC_CC_LLVM || ACC_CC_PATHSCALE)
 void e_exit(int ec) __attribute__((__noreturn__));
 #else
 void e_exit(int ec);
@@ -474,23 +504,23 @@ void printSetNl(int need_nl);
 void printClearLine(FILE *f = NULL);
 void printErr(const char *iname, const Throwable *e);
 void printUnhandledException(const char *iname, const std::exception *e);
-#if defined(__GNUC__)
+#if (ACC_CC_GNUC || ACC_CC_LLVM || ACC_CC_PATHSCALE)
 void __acc_cdecl_va printErr(const char *iname, const char *format, ...)
-        __attribute__((__format__(printf,2,3)));
+        __attribute__((__format__(__printf__,2,3)));
 void __acc_cdecl_va printWarn(const char *iname, const char *format, ...)
-        __attribute__((__format__(printf,2,3)));
+        __attribute__((__format__(__printf__,2,3)));
 #else
 void __acc_cdecl_va printErr(const char *iname, const char *format, ...);
 void __acc_cdecl_va printWarn(const char *iname, const char *format, ...);
 #endif
 
-#if defined(__GNUC__)
+#if (ACC_CC_GNUC || ACC_CC_LLVM || ACC_CC_PATHSCALE)
 void __acc_cdecl_va infoWarning(const char *format, ...)
-        __attribute__((__format__(printf,1,2)));
+        __attribute__((__format__(__printf__,1,2)));
 void __acc_cdecl_va infoHeader(const char *format, ...)
-        __attribute__((__format__(printf,1,2)));
+        __attribute__((__format__(__printf__,1,2)));
 void __acc_cdecl_va info(const char *format, ...)
-        __attribute__((__format__(printf,1,2)));
+        __attribute__((__format__(__printf__,1,2)));
 #else
 void __acc_cdecl_va infoWarning(const char *format, ...);
 void __acc_cdecl_va infoHeader(const char *format, ...);

@@ -2,8 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2004 Laszlo Molnar
+   Copyright (C) 1996-2006 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2006 Laszlo Molnar
+   Copyright (C) 2000-2006 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -26,8 +27,9 @@
  */
 
 
-#define NRV2E_LOADER_SMALL_ADLER32 0xaf6bbbda
-#define NRV2E_LOADER_SMALL_CRC32   0xd302e508
+#define NRV2E_LOADER_SMALL_SIZE    558
+#define NRV2E_LOADER_SMALL_ADLER32 0x4cabbc6a
+#define NRV2E_LOADER_SMALL_CRC32   0xda3e6739
 
 unsigned char nrv2e_loader_small[558] = {
  32,  8,103,  6, 46,104,  0,  4, 96,  4, 32, 47,  0,  4, 72,231,   /* 0x   0 */
@@ -47,7 +49,7 @@ unsigned char nrv2e_loader_small[558] = {
  33,223,  0,244, 33,223,  0, 44, 33,223,  0, 16, 78,113, 78,117,   /* 0x  e0 */
  78,117, 79,239,  0,146, 76,223,127,254, 32,  8,103,  2,159,207,   /* 0x  f0 */
  78,249, 10, 36, 73,100, 58, 32, 85, 80, 88, 32, 40, 67, 41, 32,   /* 0x 100 */
- 49, 57, 57, 54, 45, 50, 48, 48, 52, 32,116,104,101, 32, 85, 80,   /* 0x 110 */
+ 49, 57, 57, 54, 45, 85, 80, 88, 89, 32,116,104,101, 32, 85, 80,   /* 0x 110 */
  88, 32, 84,101, 97,109, 46, 32, 65,108,108, 32, 82,105,103,104,   /* 0x 120 */
 116,115, 32, 82,101,115,101,114,118,101,100, 46, 32,104,116,116,   /* 0x 130 */
 112, 58, 47, 47,117,112,120, 46,115,102, 46,110,101,116, 32, 36,   /* 0x 140 */

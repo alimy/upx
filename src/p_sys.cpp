@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -21,8 +21,8 @@
    If not, write to the Free Software Foundation, Inc.,
    59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-   Markus F.X.J. Oberhumer              Laszlo Molnar
-   <mfx@users.sourceforge.net>          <ml1050@users.sourceforge.net>
+   Markus F.X.J. Oberhumer   Laszlo Molnar
+   markus@oberhumer.com      ml1050@users.sourceforge.net
  */
 
 
@@ -45,13 +45,12 @@ bool PackSys::canPack()
 {
     unsigned char buf[128];
 
-    fi->readx(buf,128);
+    fi->readx(buf, sizeof(buf));
     if (memcmp (buf,"\xff\xff\xff\xff",4) != 0)
         return false;
     if (!fn_has_ext(fi->getName(),"sys"))
         return false;
-    if (pfind_le32(buf,128,UPX_MAGIC_LE32))
-        throwAlreadyPacked();
+    checkAlreadyPacked(buf, sizeof(buf));
     if (file_size < 1024)
         throwCantPack("file is too small");
     if (file_size > 0x10000)
@@ -64,22 +63,23 @@ bool PackSys::canPack()
 //
 **************************************************************************/
 
-void PackSys::patchLoader(OutputFile *fo, unsigned calls, unsigned overlapoh)
+void PackSys::patchLoader(OutputFile *fo,
+                          upx_byte *loader, int lsize,
+                          unsigned calls)
 {
     const int filter_id = ph.filter;
-    const int lsize = getLoaderSize();
-    const int e_len = getLoaderSection("SYSCUTPO");
+    const int e_len = getLoaderSectionStart("SYSCUTPO");
     const int d_len = lsize - e_len;
     assert(e_len > 0 && e_len < 256);
     assert(d_len > 0 && d_len < 256);
 
-    if (ph.u_len + d_len + overlapoh > 0xfffe)
+    if (ph.u_len + d_len + ph.overlap_overhead > 0xfffe)
         throwNotCompressible();
 
     memcpy(loader,ibuf,6);              // copy from orig. header
     memcpy(loader+8,ibuf+8,2);          // opendos wants this word too
 
-    unsigned copy_to = ph.u_len + d_len + overlapoh;
+    unsigned copy_to = ph.u_len + d_len + ph.overlap_overhead;
 
     patch_le16(loader,lsize,"JO",get_le16(ibuf+6)-copy_to-1);
     if (filter_id)
@@ -87,11 +87,11 @@ void PackSys::patchLoader(OutputFile *fo, unsigned calls, unsigned overlapoh)
         assert(calls > 0);
         patch_le16(loader,lsize,"CT",calls);
     }
+    patchPackHeader(loader,e_len);
 
-    unsigned jmp_pos;
-    jmp_pos = pfind_le16(loader,e_len,get_le16("JM")) - loader;
-    patch_le16(loader,e_len,"JM",ph.u_len+overlapoh+2-jmp_pos-2);
-    loader[getLoaderSection("SYSSUBSI") - 1] = (upx_byte) -e_len;
+    const unsigned jmp_pos = find_le16(loader,e_len,get_le16("JM"));
+    patch_le16(loader,e_len,"JM",ph.u_len+ph.overlap_overhead+2-jmp_pos-2);
+    loader[getLoaderSectionStart("SYSSUBSI") - 1] = (upx_byte) -e_len;
     patch_le16(loader,e_len,"DI",copy_to);
     patch_le16(loader,e_len,"SI",ph.c_len+e_len+d_len-1);
 
@@ -104,21 +104,22 @@ void PackSys::patchLoader(OutputFile *fo, unsigned calls, unsigned overlapoh)
 
 int PackSys::buildLoader(const Filter *ft)
 {
-    const int filter_id = ft->id;
     initLoader(nrv2b_loader,sizeof(nrv2b_loader));
     addLoader("SYSMAIN1",
               opt->cpu == opt->CPU_8086 ? "SYSI0861" : "SYSI2861",
-              "SYSMAIN2""SYSSUBSI",
-              //ph.first_offset_found == 1 ? "SYSSBBBP" : "",
-              "SYSSBBBP",
-              filter_id ? "SYSCALLT" : "",
-              "SYSMAIN3""UPX1HEAD""SYSCUTPO""NRV2B160""NRVDDONE""NRVDECO1",
+              "SYSMAIN2,SYSSUBSI",
+              ph.first_offset_found == 1 ? "SYSSBBBP" : "",
+              ft->id ? "SYSCALLT" : "",
+              "SYSMAIN3,UPX1HEAD,SYSCUTPO,NRV2B160,NRVDDONE,NRVDECO1",
               ph.max_offset_found <= 0xd00 ? "NRVLED00" : "NRVGTD00",
-              "NRVDECO2""NRV2B169",
+              "NRVDECO2,NRV2B169",
               NULL
              );
-    if (filter_id)
-        addFilter16(filter_id);
+    if (ft->id)
+    {
+        assert(ft->calls > 0);
+        addFilter16(ft->id);
+    }
     addLoader("SYSMAIN5",
               opt->cpu == opt->CPU_8086 ? "SYSI0862" : "SYSI2862",
               "SYSJUMP1",

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2002 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2002 Laszlo Molnar
+   Copyright (C) 1996-2004 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2004 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -28,6 +28,7 @@
 
 #include "conf.h"
 #include "file.h"
+#include "mem.h"
 #include "lefile.h"
 
 
@@ -46,7 +47,6 @@ LeFile::LeFile(InputFile *f) :
     ires_names = ores_names = NULL;
     ifixups = ofixups = NULL;
     inonres_names = ononres_names = NULL;
-    iimage = oimage = NULL;
     ientries = oentries = NULL;
 }
 
@@ -65,8 +65,6 @@ LeFile::~LeFile()
     delete [] ofixups;
     delete [] inonres_names;
     delete [] ononres_names;
-    delete [] iimage;
-    delete [] oimage;
     delete [] ientries;
     delete [] oentries;
 }
@@ -189,7 +187,7 @@ unsigned LeFile::getImageSize() const
 void LeFile::readImage()
 {
     soimage = pages*mps;
-    iimage = new upx_byte[soimage];
+    iimage.alloc(soimage);
     memset(iimage,0,soimage);
 
     unsigned ic,jc;
