@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -84,7 +84,7 @@ public:
     //virtual void setLoaderAlignOffset(int phase);
     virtual int addLoader(const char *sname);
     void addLoader(const char *s, va_list ap);
-#if 1 && (ACC_CC_GNUC >= 0x040100)
+#if 1 && (ACC_CC_CLANG || (ACC_CC_GNUC >= 0x040100))
     void __acc_cdecl_va addLoaderVA(const char *s, ...) __attribute__((__sentinel__));
 #else
     void __acc_cdecl_va addLoaderVA(const char *s, ...);

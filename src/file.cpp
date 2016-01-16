@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -408,6 +408,22 @@ void OutputFile::seek(off_t off, int whence)
     } break;
     }
     super::seek(off,whence);
+}
+
+int OutputFile::read(void *buf, int len)
+{
+    InputFile infile;
+    infile.open(this->getName(), O_RDONLY);
+    infile.seek(this->tell(), SEEK_SET);
+    return infile.read(buf, len);
+}
+
+int OutputFile::readx(void *buf, int len)
+{
+    InputFile infile;
+    infile.open(this->getName(), O_RDONLY);
+    infile.seek(this->tell(), SEEK_SET);
+    return infile.readx(buf, len);
 }
 
 void OutputFile::set_extent(off_t offset, off_t length)

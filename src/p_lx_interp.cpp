@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
-   Copyright (C) 2000-2010 John F. Reiser
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
+   Copyright (C) 2000-2011 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -114,7 +114,7 @@ void PackLinuxElf32x86interp::pack1(OutputFile *fo, Filter &)
     h3.phdr[2].p_align = 1;
 
     if (opt->o_unix.make_ptinterp) { // unusual "once per release"
-        elfout = h3;
+        *(cprElfHdr3 *)(void *)&elfout = h3;
         elfout.ehdr.e_phnum = 1;
         fo->write(&elfout, elfout.ehdr.e_ehsize + elfout.ehdr.e_phentsize);
     }

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -382,12 +382,18 @@ static void *mmap(
     register int          v0 asm("v0") = __NR_mmap;
     __asm__ __volatile__(
       /*"break\n"*/  /* debug only */
+    "7:\n"
         "addiu $29,$29,-0x20\n"
         "\tsw $8,0x10($29)\n"
         "\tsw $9,0x14($29)\n"
         "\tsyscall\n"
         "\taddiu $29,$29, 0x20\n"
         "\tb sysret\n"
+    "mmap_privanon:\n"
+        "\tori $7,$7,0x22\n"  // MAP_PRIVATE|MAP_ANON
+        "\tli $8,-1\n"  // fd
+        "\tli $9,0\n"  // offset
+        "\tb 7b\n"
     "sysgo:"
       /*"break\n"*/  /* debug only */
         "\tsyscall\n"
@@ -402,7 +408,6 @@ static void *mmap(
     );
     return (void *)v0;
 }
-
 static ssize_t read(int fd, void *buf, size_t len)
 {
 #define __NR_read (3+ 4000)
@@ -511,7 +516,7 @@ static ssize_t open(char const *path, int kind, int mode)
     return v0;
 }
 
-#if 0  /*{ UNUSED */
+#if DEBUG  /*{*/
 static ssize_t write(int fd, void const *buf, size_t len)
 {
 #define __NR_write (4+ 4000)
@@ -520,7 +525,7 @@ static ssize_t write(int fd, void const *buf, size_t len)
     register size_t       const a2 asm("a2") = len;
     register size_t             v0 asm("v0") = __NR_write;
     __asm__ __volatile__(
-        "bal sysgo"
+        "b sysgo"
     : "+r"(v0)
     : "r"(a0), "r"(a1), "r"(a2)
     : "a3"

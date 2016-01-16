@@ -3,7 +3,7 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 2000-2010 John F. Reiser
+;  Copyright (C) 2000-2011 John F. Reiser
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -113,9 +113,9 @@ L50:
 L53:
         push eax  // dynbase
 
-        mov esi, [e_entry + ebx]  // end of compressed data
-        lea eax, [szElf32_Ehdr + 2*szElf32_Phdr + szl_info + szp_info + ebx]  // 1st &b_info
-        sub esi, eax  // length of compressed data
+        mov eax, [e_entry + ebx]  // end of compressed data
+        mov esi, [-2*4 + eax]  // length of compressed data
+        sub eax, esi  // 1st &b_info
         mov ebx, [   eax]  // length of uncompressed ELF headers
         mov ecx, [4+ eax]  // length of   compressed ELF headers
         add ecx, szb_info

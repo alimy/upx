@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
-   Copyright (C) 2000-2010 John F. Reiser
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
+   Copyright (C) 2000-2011 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -63,8 +63,7 @@ protected:
     virtual void addStubEntrySections(Filter const *);
     virtual void unpack(OutputFile *fo);
 
-    virtual unsigned elf_get_offset_from_address(acc_uint64l_t) const = 0;
-    virtual void const *elf_find_dynamic(unsigned) const = 0;
+    //virtual void const *elf_find_dynamic(unsigned) const = 0;
     virtual acc_uint64l_t elf_unsigned_dynamic(unsigned) const = 0;
 
 protected:
@@ -75,6 +74,8 @@ protected:
     unsigned sz_phdrs;  // sizeof Phdr[]
     unsigned sz_elf_hdrs;  // all Elf headers
     unsigned sz_pack2;  // after pack2(), before loader
+    unsigned sz_pack2a;  // after pack2() of all PT_LOAD
+    unsigned sz_pack2b;  // after pack2() of all PT_LOAD and gaps
     unsigned lg2_page;  // log2(PAGE_SIZE)
     unsigned page_size;  // 1u<<lg2_page
     unsigned xct_off;  // shared library: file offset of SHT_EXECINSTR
@@ -103,6 +104,7 @@ protected:
     // but the class hierarchy splits after this class.
     virtual void ARM_defineSymbols(Filter const *ft);
     virtual void ARM_updateLoader(OutputFile *);
+    virtual int  ARM_is_QNX(void);
 
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
     virtual void pack2(OutputFile *, Filter &);  // append compressed data
@@ -132,15 +134,18 @@ protected:
     static unsigned elf_hash(char const *) /*const*/;
     static unsigned gnu_hash(char const *) /*const*/;
     virtual Elf32_Sym const *elf_lookup(char const *) const;
-    virtual unsigned elf_get_offset_from_address(acc_uint64l_t) const;
+    virtual unsigned elf_get_offset_from_address(unsigned) const;
     Elf32_Shdr const *elf_find_section_name(char const *) const;
     Elf32_Shdr const *elf_find_section_type(unsigned) const;
     void const *elf_find_dynamic(unsigned) const;
+    Elf32_Dyn const *elf_has_dynamic(unsigned) const;
     acc_uint64l_t elf_unsigned_dynamic(unsigned) const;
 
 protected:
     Elf32_Ehdr  ehdri; // from input file
     Elf32_Phdr *phdri; // for  input file
+    unsigned char *note_body;  // concatenated contents of PT_NOTEs, if any
+    unsigned note_size;  // total size of PT_NOTEs
     Elf32_Shdr const *shdri; // from input file
     unsigned page_mask;  // AND clears the offset-within-page
 
@@ -173,23 +178,30 @@ protected:
         l_info linfo;
     __packed_struct_end()
 
-    cprElfHdr3 elfout;
+    __packed_struct(cprElfHdrNetBSD)
+        Elf32_Ehdr ehdr;
+        Elf32_Phdr phdr[4];
+        unsigned char notes[512];
+    __packed_struct_end()
 
-    struct Elf32_Note {
-        unsigned namesz;  // 8
-        unsigned descsz;  // 4
-        unsigned type;    // 1
-        char text[0x18 - 4*4];  // "OpenBSD"
-        unsigned end;     // 0
-    } elfnote;
+    cprElfHdrNetBSD elfout;
+
+    struct Elf32_Nhdr {
+        unsigned namesz;
+        unsigned descsz;
+        unsigned type;
+        //unsigned char body[0];
+    };
 
     static void compileTimeAssertions() {
         COMPILE_TIME_ASSERT(sizeof(cprElfHdr1) == 52 + 1*32 + 12)
         COMPILE_TIME_ASSERT(sizeof(cprElfHdr2) == 52 + 2*32 + 12)
         COMPILE_TIME_ASSERT(sizeof(cprElfHdr3) == 52 + 3*32 + 12)
+        COMPILE_TIME_ASSERT(sizeof(cprElfHdrNetBSD) == 52 + 4*32 + 512)
         COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr1)
         COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr2)
         COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr3)
+        COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdrNetBSD)
     }
 };
 
@@ -229,15 +241,18 @@ protected:
     virtual unsigned find_LOAD_gap(Elf64_Phdr const *const phdri, unsigned const k,
         unsigned const e_phnum);
 
-    virtual unsigned elf_get_offset_from_address(acc_uint64l_t) const;
+    virtual acc_uint64l_t elf_get_offset_from_address(acc_uint64l_t) const;
     Elf64_Shdr const *elf_find_section_name(char const *) const;
     Elf64_Shdr const *elf_find_section_type(unsigned) const;
     void const *elf_find_dynamic(unsigned) const;
+    Elf64_Dyn const *elf_has_dynamic(unsigned) const;
     acc_uint64l_t elf_unsigned_dynamic(unsigned) const;
 
 protected:
     Elf64_Ehdr  ehdri; // from input file
     Elf64_Phdr *phdri; // for  input file
+    unsigned char *note_body;  // concatenated contents of PT_NOTEs, if any
+    unsigned note_size;  // total size of PT_NOTEs
     Elf64_Shdr const *shdri; // from input file
     acc_uint64l_t page_mask;  // AND clears the offset-within-page
 
@@ -270,15 +285,23 @@ protected:
         l_info linfo;
     __packed_struct_end()
 
-    cprElfHdr3 elfout;
+    __packed_struct(cprElfHdr4)
+        Elf64_Ehdr ehdr;
+        Elf64_Phdr phdr[4];
+        l_info linfo;
+    __packed_struct_end()
+
+    cprElfHdr4 elfout;
 
     static void compileTimeAssertions() {
         COMPILE_TIME_ASSERT(sizeof(cprElfHdr1) == 64 + 1*56 + 12)
         COMPILE_TIME_ASSERT(sizeof(cprElfHdr2) == 64 + 2*56 + 12)
         COMPILE_TIME_ASSERT(sizeof(cprElfHdr3) == 64 + 3*56 + 12)
+        COMPILE_TIME_ASSERT(sizeof(cprElfHdr4) == 64 + 4*56 + 12)
         COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr1)
         COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr2)
         COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr3)
+        COMPILE_TIME_ASSERT_ALIGNED1(cprElfHdr4)
     }
 };
 
@@ -406,13 +429,21 @@ public:
     virtual const char *getFullName(const options_t *) const { return "i386-freebsd.elf"; }
 };
 
-class PackNetBSDElf32x86 : public PackBSDElf32x86
+class PackNetBSDElf32x86 : public PackLinuxElf32x86
 {
-    typedef PackBSDElf32x86 super;
+    typedef PackLinuxElf32x86 super;
 public:
     PackNetBSDElf32x86(InputFile *f);
     virtual ~PackNetBSDElf32x86();
+    virtual const char *getName() const { return "netbsd/elf386"; }
     virtual const char *getFullName(const options_t *) const { return "i386-netbsd.elf"; }
+protected:
+    virtual void buildLoader(const Filter *ft);
+    virtual void generateElfHdr(
+        OutputFile *,
+        void const *proto,
+        unsigned const brka
+    );
 };
 
 class PackOpenBSDElf32x86 : public PackBSDElf32x86
@@ -421,6 +452,7 @@ class PackOpenBSDElf32x86 : public PackBSDElf32x86
 public:
     PackOpenBSDElf32x86(InputFile *f);
     virtual ~PackOpenBSDElf32x86();
+    virtual const char *getName() const { return "opnbsd/elf386"; }
     virtual const char *getFullName(const options_t *) const { return "i386-openbsd.elf"; }
 
 protected:

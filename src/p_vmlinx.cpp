@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2004-2010 John Reiser
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 2004-2011 John Reiser
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -1079,8 +1079,8 @@ void PackVmlinuxAMD64::defineDecompressorSymbols()
     // We assume a 32-bit boot loader, so we use the 32-bit convention
     // of "enter at the beginning" (startup_32).  The 64-bit convention
     // would be to use ehdri.e_entry (startup_64).
-    linker->defineSymbol("ENTRY_POINT", phdri[0].p_paddr);
-    linker->defineSymbol("PHYSICAL_START", phdri[0].p_paddr);
+    linker->defineSymbol("ENTRY_POINT", (unsigned) phdri[0].p_paddr);
+    linker->defineSymbol("PHYSICAL_START", (unsigned) phdri[0].p_paddr);
 }
 
 unsigned PackVmlinuxARMEL::write_vmlinux_head(

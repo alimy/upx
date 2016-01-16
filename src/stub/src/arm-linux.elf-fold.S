@@ -2,7 +2,7 @@
 @
 @  This file is part of the UPX executable compressor.
 @
-@  Copyright (C) 2000-2010 John F. Reiser
+@  Copyright (C) 2000-2011 John F. Reiser
 @  All Rights Reserved.
 @
 @  UPX and the UCL library are free software; you can redistribute them
@@ -29,6 +29,7 @@
 
 #define ARM_OLDABI 1
 #include "arch/arm/v4a/macros.S"
+#define bkpt .long 0xe7f001f0  /* reserved instr; Linux GNU eabi breakpoint */
 
 sz_Elf32_Ehdr = 13*4
 sz_Elf32_Phdr =  8*4
@@ -50,11 +51,15 @@ fold_begin:
    r10= &b_info of first compressed block (after move)
     r9= total size of compressed data
     r5= f_decompress
-    sp/ ADRU,LENU,sz_unc,crumb,argc,argv...
+    sp/ ADRU,LENU,sz_unc,crumb,MFLG,argc,argv...
 */
-        ldr r3,[sp,#4*4]  @ argc
+SP_sz_unc= 2*4
+SP_MFLG= 4*4
+SP_argc= 5*4
+        ldr r3,[sp,#SP_argc]
+        ldr lr,[sp,#SP_MFLG]
         add r3,sp,r3,lsl #2  @ skip argv
-        add r3,r3,#4*4 +4 +4  @ skip ADRU,LENU,sz_unc,crumb, argc, env_end
+        add r3,r3,#SP_argc +4 +4  @ skip ADRU,LENU,sz_unc,crumb,MFLG, argc, env_end
 .Lenv:
         ldr r0,[r3],#4  @ skip env
         cmp r0,#0
@@ -65,7 +70,7 @@ fold_begin:
         ldr r0,[r2],#2*4  @ .a_type
         cmp r0,#0
         bne .Laux
-        str r2,[sp,#2*4]  @ clobber sz_unc with 1+ &Elf32_auxv_t[AT_NULL@.a_type]
+        str r2,[sp,#SP_sz_unc]  @ clobber sz_unc with 1+ &Elf32_auxv_t[AT_NULL@.a_type]
 
         sub sp,sp,#MAX_ELF_HDR + OVERHEAD  @ alloca
         mov r4,r9  @ total size of compressed data
@@ -75,15 +80,31 @@ fold_begin:
         adr r6,f_unfilter
         add r9,r9,#sz_b_info  @ for unpackExtent
         mov r11,#0  @ dynbase for ET_EXEC;  FIXME for ET_DYN
-        stmdb sp!,{r3,r4,r5,r6,r7,r8,r9,r10,r11}
+#if defined(ARMEL_DARWIN)  /*{*/
+        ldr r12,4*1 + munmap
+#elif defined(ARMEL_EABI4)  /*}{*/
+        ldr r12,4*2 + munmap
+#elif defined(ARM_OLDABI)  /*}{*/
+        ldr r12,4*0 + munmap
+#else  /*}{*/
+        mov r12,#0
+#endif  /*}*/
+        stmdb sp!,{r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,lr}
         ldmia sp!,{r0,r1,r2,r3}
         bl upx_main
         mov lr,r0  @ entry address
-        add sp,sp,#(9-4)*4
+        add sp,sp,#(11-4)*4
         add sp,sp,#MAX_ELF_HDR + OVERHEAD  @ un-alloca
-        ldmia sp!,{r0,r1,r2,r3}  @ ADRU,LENU,1+ &Elf32_auxv_t[AT_NULL@.a_type],crumb
+        ldmia sp!,{r0,r1,r2,r3,r4}  @ ADRU,LENU,1+ &Elf32_auxv_t[AT_NULL@.a_type],crumb,MFLG
         add r0,r0,r3  @ ADRU+=crumb
         sub r1,r1,r3  @ LENU-=crumb
+#if defined(ARMEL_DARWIN)  /*{*/
+        mov r12,#0xff & __NR_munmap
+#elif defined(ARMEL_EABI4)  /*}{*/
+        mov r7, #0xff & __NR_munmap
+#elif defined(ARM_OLDABI)  /*{*/
+        @ empty
+#endif  /*}*/
         ldr pc,[r2,#4 -2*4]  @ Elf32_auxv_t[AT_NULL@.a_type].a_val
 
 f_unfilter:  @ (char *ptr, uint len, uint cto, uint fid)
@@ -119,7 +140,7 @@ top_unf:
 tst_unf:
         cmp len,#0
         bne top_unf
-        mov pc,lr
+        ret
 
         .unreq ptr
         .unreq len
@@ -174,65 +195,59 @@ mmap:
         str r5,[sp,#-4]!; ldr r5,[sp,#4+4]
         str r4,[sp,#-4]!; ldr r4,[sp,#4+4]
         mov r5,r5,lsr #12  @ convert to page number
+mmap_do:
         do_sys __NR_mmap2
         ldr r4,[sp],#4
         ldr r5,[sp],#4
         ret
 
-#if 0  /*{ "gcc-3.4 -fPIC" botches string constants when code moves! */
-        .globl STR_0x
-STR_0x:
-        mov r0,pc; mov pc,lr
-        .asciz "0x"
-        .balign 4
+bits_privanon= -4+ fold_begin  // entry stores: MAP_{PRIVATE|ANON}  QNX vs linux
 
-        .globl STR_hex
-STR_hex:
-        mov r0,pc; mov pc,lr
-        .asciz "0123456789abcdef"
-        .balign 4
+mmap_privanon: .globl mmap_privanon
+        ldr r12,bits_privanon  @ r12 === ip
+        str r5,[sp,#-4]!; mov r5,#0  @ offset= 0
+        str r4,[sp,#-4]!; mvn r4,#0  @ fd= -1
+        orr r3,r3,r12  @ flags |= MAP_{PRIVATE|ANON}  [QNX vs Linux]
+        b mmap_do
 
-        .globl STR_xread
-STR_xread:
-        mov r0,pc; mov pc,lr
-        .asciz "xread %p(%x %p) %p %x\n"
-        .balign 4
 
-        .globl STR_unpackExtent
-STR_unpackExtent:
-        mov r0,pc; mov pc,lr
-        .asciz "unpackExtent in=%p(%x %p)  out=%p(%x %p)  %p %p\n"
-        .balign 4
+#ifndef DEBUG  /*{*/
+#define DEBUG 0
+#endif  /*}*/
 
-        .globl STR_make_hatch_arm
-STR_make_hatch_arm:
-        mov r0,pc; mov pc,lr
-        .asciz "make_hatch_arm %p %x\n"
-        .balign 4
+#if DEBUG  /*{*/
 
-        .globl STR_auxv_up
-STR_auxv_up:
-        mov r0,pc; mov pc,lr
-        .asciz "auxv_up  %p %x %x\n"
-        .balign 4
+div10: .globl div10
+        mov ip,r0  @ extra copy used at end
+        sub r1,r1,r1  @ hi
 
-        .globl STR_xfind_pages
-STR_xfind_pages:
-        mov r0,pc; mov pc,lr
-        .asciz "xfind_pages  %x  %p  %d  %p\n"
-        .balign 4
+        mov r2,r0  @ copy lo
+        adds r0,r0,r0,lsl #3   @ 9*lo
+        adc  r1,r1,r1,lsl #3   @ 9*hi + C
+        add  r1,r1,r2,lsr #(32 - 3)  @ bits shifted from lo to hi
 
-        .globl STR_do_xmap
-STR_do_xmap:
-        mov r0,pc; mov pc,lr
-        .asciz "do_xmap  fdi=%x  ehdr=%p  xi=%p(%x %p)  av=%p  p_reloc=%p  f_unf=%p\n"
-        .balign 4
+        mov r2,r0  @ copy lo
+        adds r0,r0,r0,lsl #4
+        adc  r1,r1,r1,lsl #4
+        add  r1,r1,r2,lsr #(32 - 4)  @ * 0x99
 
-        .globl STR_upx_main
-STR_upx_main:
-        mov r0,pc; mov pc,lr
-        .asciz "upx_main av=%p  szc=%x  f_dec=%p  f_unf=%p  xo=%p(%x %p)  xi=%p(%x %p)  dynbase=%x\n",
-        .balign 4
+        mov r2,r0  @ copy lo
+        adds r0,r0,r0,lsl #8
+        adc  r1,r1,r1,lsl #8
+        add  r1,r1,r2,lsr #(32 - 8)  @ * 0x9999
+
+        mov r2,r0  @ copy lo
+        adds r0,r0,r0,lsl #16
+        adc  r1,r1,r1,lsl #16
+        add  r1,r1,r2,lsr #(32 - 16)  @ * 0x99999999
+
+        subs r0,r0,ip,lsl #(32 - 1)  @ - * 0x80000000
+        sbc  r1,r1,ip,lsr #1         @   * 0x19999999
+
+        adds r0,r0,ip
+        adc  r0,r1,#0  @ * 0x0.1999999a
+        ret
+
 #endif  /*}*/
 
 @ vi:ts=8:et:nowrap

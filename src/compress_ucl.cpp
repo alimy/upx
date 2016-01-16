@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -34,7 +34,7 @@ int compress_ucl_dummy = 0;
 #else
 
 #if 1 && !(UCL_USE_ASM) && (ACC_ARCH_I386)
-#  if (ACC_CC_GNUC || ACC_CC_INTELC || ACC_CC_MSC || ACC_CC_WATCOMC)
+#  if (ACC_CC_CLANG || ACC_CC_GNUC || ACC_CC_INTELC || ACC_CC_MSC || ACC_CC_WATCOMC)
 #    define UCL_USE_ASM 1
 #  endif
 #endif

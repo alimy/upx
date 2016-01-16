@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -152,6 +152,7 @@
         DT_RELENT   = 19,       /* Size of one Rel relocation */
         DT_STRSZ    = 10,       /* Sizeof string table */
         DT_PLTREL   = 20,       /* Type of reloc in PLT */
+        DT_TEXTREL  = 22,       /* Reloc might modify .text */
         DT_JMPREL   = 23,       /* Address of PLT relocs */
         DT_CHECKSUM = 0x6ffffdf8,       /* Only for prelink? */
         DT_GNU_HASH = 0x6ffffef5,       /* GNU-style hash table */
@@ -194,6 +195,55 @@
     };
 #endif
 
+
+#ifdef WANT_NHDR_ENUM
+#undef WANT_NHDR_ENUM
+    enum { // ELF PT_NOTE types
+#define ELF_NOTE_GNU_NAME "GNU\0"
+        NT_GNU_ABI_TAG = 1,
+        NT_GNU_HWCAP = 2,
+        NT_GNU_BUILD_ID = 3,
+
+#define ELF_NOTE_OPENBSD_NAME "OpenBSD\0"
+        NHDR_OPENBSD_TAG = 1,
+
+#define ELF_NOTE_NETBSD_NAME "NetBSD\0"
+        NHDR_NETBSD_TAG = 1,
+        NHDR_CHECKSUM_TAG = 2,
+        NHDR_PAX_TAG = 3
+    };
+
+    enum { // descsz  descriptor sizes
+        GNU_ABI_DESCSZ = 16, // int GNU_OS, major, minor, subminor;
+        NETBSD_DESCSZ = 4,   // major_ver * (10**8) + minor
+        OPENBSD_DESCSZ = 4,  // 32-bit zero
+            // CHECKSUM_DESCSZ is 2*sizeof(short) + sizeof(checksum)
+        PAX_DESCSZ = 4  // 32-bit mask
+    };
+
+    enum { // GNU OS/version
+        GNU_OS_LINUX = 0,
+        GNU_OS_HURD = 1,
+        GNU_OS_SOLARIS = 2
+    };
+
+    enum { // NetBSD checksum methods
+        CHECKSUM_CRC32 = 1,
+        CHECKSUM_MD5 = 2,
+        CHECKSUM_SHA1 = 3,
+        CHECKSUM_SHA256 = 4
+    };
+
+#define ELF_NOTE_PAX_NAME "PaX\0"
+    enum { // NetBSD PaX bit values
+        PAX_MPROTECT   = (1<<0),  /* force  enable Mprotect */
+        PAX_NOMPROTECT = (1<<1),  /* force disable Mprotect */
+        PAX_GUARD      = (1<<2),  /* force  enable SEGVguard */
+        PAX_NOGUARD    = (1<<3),  /* force disable SEGVguard */
+        PAX_ASLR       = (1<<4),  /* force  enable ASLR */
+        PAX_NOASLR     = (1<<5)   /* force disable ASLR */
+    };
+#endif
 
 /*
 vi:ts=4:et

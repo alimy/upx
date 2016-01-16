@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -327,7 +327,9 @@ void PackTmt::unpack(OutputFile *fo)
     {
         Filter ft(ph.level);
         ft.init(ph.filter, 0);
-        ft.cto = (unsigned char) (ph.version < 11 ? (get_le32(obuf+ph.u_len-12) >> 24) : ph.filter_cto);
+        ft.cto = (unsigned char) ph.filter_cto;
+        if (ph.version < 11)
+            ft.cto = (unsigned char) (get_le32(obuf+ph.u_len-12) >> 24);
         ft.unfilter(obuf, ptr_diff(relocs, obuf));
     }
 

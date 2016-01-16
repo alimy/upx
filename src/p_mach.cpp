@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2004-2010 John Reiser
+   Copyright (C) 2004-2011 John Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -429,11 +429,11 @@ void PackMachBase<T>::patchLoaderChecksum()
     // checksum for loader; also some PackHeader info
     lp->l_checksum = 0;
     lp->l_magic = UPX_MAGIC_LE32;  // LE32 always
-    lp->l_lsize = (unsigned short) lsize;
+    set_te16(&lp->l_lsize, (unsigned short) lsize);
     lp->l_version = (unsigned char) ph.version;
     lp->l_format  = (unsigned char) ph.format;
     // INFO: lp->l_checksum is currently unused
-    lp->l_checksum = upx_adler32(ptr, lsize);
+    set_te32(&lp->l_checksum, upx_adler32(ptr, lsize));
 }
 
 template <class T>
@@ -1351,15 +1351,19 @@ void PackMachFat::pack(OutputFile *fo)
 
 void PackMachFat::unpack(OutputFile *fo)
 {
-    fo->seek(0, SEEK_SET);
-    fo->write(&fat_head, sizeof(fat_head.fat) +
-        fat_head.fat.nfat_arch * sizeof(fat_head.arch[0]));
+    if (fo) {  // test mode ("-t") sets fo = NULL
+        fo->seek(0, SEEK_SET);
+        fo->write(&fat_head, sizeof(fat_head.fat) +
+            fat_head.fat.nfat_arch * sizeof(fat_head.arch[0]));
+    }
     unsigned length;
     for (unsigned j=0; j < fat_head.fat.nfat_arch; ++j) {
-        unsigned base = fo->unset_extent();  // actual length
+        unsigned base = (fo ? fo->unset_extent() : 0);  // actual length
         base += ~(~0u<<fat_head.arch[j].align) & (0-base);  // align up
-        fo->seek(base, SEEK_SET);
-        fo->set_extent(base, ~0u);
+        if (fo) {
+            fo->seek(base, SEEK_SET);
+            fo->set_extent(base, ~0u);
+        }
 
         ph.u_file_size = fat_head.arch[j].size;
         fi->set_extent(fat_head.arch[j].offset, fat_head.arch[j].size);
@@ -1418,13 +1422,15 @@ void PackMachFat::unpack(OutputFile *fo)
         } break;
         }  // switch cputype
         fat_head.arch[j].offset = base;
-        length = fo->unset_extent();
+        length = (fo ? fo->unset_extent() : 0);
         fat_head.arch[j].size = length - base;
     }
-    fo->unset_extent();
-    fo->seek(0, SEEK_SET);
-    fo->rewrite(&fat_head, sizeof(fat_head.fat) +
-        fat_head.fat.nfat_arch * sizeof(fat_head.arch[0]));
+    if (fo) {
+        fo->unset_extent();
+        fo->seek(0, SEEK_SET);
+        fo->rewrite(&fat_head, sizeof(fat_head.fat) +
+            fat_head.fat.nfat_arch * sizeof(fat_head.arch[0]));
+    }
 }
 
 bool PackMachFat::canPack()

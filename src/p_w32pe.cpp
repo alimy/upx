@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -183,6 +183,8 @@ int PackW32Pe::readFileHeader()
 // the virtual memory manager only for pages which are not yet loaded.
 // of course it was impossible to debug this ;-)
 
+#define TLS_CB_ALIGNMENT 4u   // alignment of tls callbacks
+
 __packed_struct(tls)
     LE32 datastart; // VA tls init data start
     LE32 dataend;   // VA tls init data end
@@ -211,13 +213,6 @@ void PackW32Pe::processTls(Interval *iv) // pass 1
         unsigned v = get_le32(ibuf + tlsp->callbacks - ih.imagebase);
 
         //NEW: TLS callback support - Stefan Widmann
-#if 0
-        if (v != 0)
-        {
-            //fprintf(stderr, "TLS callbacks: 0x%0x -> 0x%0x\n", (int)tlsp->callbacks, v);
-            throwCantPack("TLS callbacks are not supported");
-        }
-#endif
         if(v != 0)
         {
             //count number of callbacks, just for information string - Stefan Widmann
@@ -248,13 +243,16 @@ void PackW32Pe::processTls(Interval *iv) // pass 1
         if (pos >= tlsdatastart && pos < tlsdataend)
             iv->add(pos,type);
 
-    //NEW: if TLS callbacks are used, we need two more DWORDS at the end of the TLS
-    sotls = sizeof(tls) + tlsdataend - tlsdatastart + (use_tls_callbacks ? 8 : 0);
+    sotls = sizeof(tls) + tlsdataend - tlsdatastart;
+    // if TLS callbacks are used, we need two more DWORDS at the end of the TLS
+    // ... and those dwords should be correctly aligned
+    if (use_tls_callbacks)
+        sotls = ALIGN_UP(sotls, TLS_CB_ALIGNMENT) + 8;
 
     // the PE loader wants this stuff uncompressed
     otls = new upx_byte[sotls];
     memset(otls,0,sotls);
-    memcpy(otls,ibuf + IDADDR(PEDIR_TLS),0x18);
+    memcpy(otls,ibuf + IDADDR(PEDIR_TLS),sizeof(tls));
     // WARNING: this can acces data in BSS
     memcpy(otls + sizeof(tls),ibuf + tlsdatastart,sotls - sizeof(tls));
     tlsindex = tlsp->tlsindex - ih.imagebase;
@@ -292,9 +290,9 @@ void PackW32Pe::processTls(Reloc *rel,const Interval *iv,unsigned newaddr) // pa
             rel->add(kc - ih.imagebase,iv->ivarr[ic].len);
     }
 
+    const unsigned tls_data_size = tlsp->dataend - tlsp->datastart;
     tlsp->datastart = newaddr + sizeof(tls) + ih.imagebase;
-    //NEW: subtract the size of the callback chain from dataend - Stefan Widmann
-    tlsp->dataend = newaddr + sotls + ih.imagebase - (use_tls_callbacks ? 8 : 0);
+    tlsp->dataend = tlsp->datastart + tls_data_size;
 
     //NEW: if we have TLS callbacks to handle, we create a pointer to the new callback chain - Stefan Widmann
     tlsp->callbacks = (use_tls_callbacks ? newaddr + sotls + ih.imagebase - 8 : 0);
@@ -365,6 +363,7 @@ unsigned PackW32Pe::processImports() // pass 1
         unsigned   iat;
         LE32       *lookupt;
         unsigned   npos;
+        unsigned   original_position;
         bool       isk32;
 
         static int __acc_cdecl_qsort compare(const void *p1, const void *p2)
@@ -373,6 +372,8 @@ unsigned PackW32Pe::processImports() // pass 1
             const udll *u2 = * (const udll * const *) p2;
             if (u1->isk32) return -1;
             if (u2->isk32) return 1;
+            if (!*u1->lookupt) return 1;
+            if (!*u2->lookupt) return -1;
             int rc = strcasecmp(u1->name,u2->name);
             if (rc) return rc;
             if (u1->ordinal) return -1;
@@ -399,11 +400,12 @@ unsigned PackW32Pe::processImports() // pass 1
         dlls[ic].iat = im->iat;
         dlls[ic].lookupt = (LE32*) (ibuf + (im->oft ? im->oft : im->iat));
         dlls[ic].npos = 0;
+        dlls[ic].original_position = ic;
         dlls[ic].isk32 = strcasecmp(kernel32dll,dlls[ic].name) == 0;
 
         soimport += strlen(dlls[ic].name) + 1 + 4;
 
-        for (LE32 *tarr = dlls[ic].lookupt; *tarr; tarr++)
+        for (IPTR_I(LE32, tarr, dlls[ic].lookupt); *tarr; tarr += 1)
         {
             if (*tarr & 0x80000000)
             {
@@ -415,10 +417,11 @@ unsigned PackW32Pe::processImports() // pass 1
             }
             else
             {
-                unsigned len = strlen(ibuf + *tarr + 2);
+                IPTR_I(const upx_byte, n, ibuf + *tarr + 2);
+                unsigned len = strlen(n);
                 soimport += len + 1;
                 if (dlls[ic].shname == NULL || len < strlen (dlls[ic].shname))
-                    dlls[ic].shname = ibuf + *tarr + 2;
+                    dlls[ic].shname = n;
             }
             soimport++; // separator
         }
@@ -510,8 +513,10 @@ unsigned PackW32Pe::processImports() // pass 1
     for (ic = 0; ic < dllnum; ic++)
     {
         LE32 *tarr = idlls[ic]->lookupt;
+#if 0 && ENABLE_THIS_AND_UNCOMPRESSION_WILL_BREAK
         if (!*tarr)  // no imports from this dll
             continue;
+#endif
         set_le32(ppi,idlls[ic]->npos);
         set_le32(ppi+4,idlls[ic]->iat - rvamin);
         ppi += 8;
@@ -579,7 +584,7 @@ unsigned PackW32Pe::processImports() // pass 1
         for (ic = 0; ic < dllnum; ic++, im++)
         {
             memset(im,FILLVAL,sizeof(*im));
-            im->dllname = ptr_diff(idlls[ic]->name,ibuf); // I only need this info
+            im->dllname = ptr_diff(dlls[idlls[ic]->original_position].name,ibuf);
         }
     }
     else

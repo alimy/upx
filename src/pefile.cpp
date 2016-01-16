@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -438,6 +438,13 @@ void PeFile::processRelocs() // pass1
                                         orelocs, ibuf + rvamin,1, &big_relocs),
                         orelocs);
     delete [] fix[3];
+
+    // Malware that hides behind UPX often has PE header info that is
+    // deliberately corrupt.  Sometimes it is even tuned to cause us trouble!
+    // Use an extra check to avoid AccessViolation (SIGSEGV) when appending
+    // the relocs into one array.
+    if ((rnum * 4 + 1024) < (sorelocs + 4*(2 + xcounts[2] + xcounts[1])))
+        throwCantUnpack("Invalid relocs");
 
     // append relocs type "LOW" then "HIGH"
     for (ic = 2; ic ; ic--)
@@ -1698,6 +1705,8 @@ void PeFile::unpack(OutputFile *fo)
     extrainfo += sizeof (oh);
     unsigned objs = oh.objects;
 
+    if ((int) objs <= 0)
+        throwCantUnpack("unexpected value in the PE header");
     Array(pe_section_t, osection, objs);
     memcpy(osection,extrainfo,sizeof(pe_section_t) * objs);
     rvamin = osection[0].vaddr;

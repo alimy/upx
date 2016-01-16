@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2010 Laszlo Molnar
+   Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2011 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -1285,8 +1285,12 @@ static bool test(void)
     COMPILE_TIME_ASSERT_ALIGNED1(test2_t)
     COMPILE_TIME_ASSERT(sizeof(t2) == 7 + 21*sizeof(T))
 #if defined(__acc_alignof)
+#if (ACC_CC_CLANG && ACC_ARCH_AMD64)
+    // CBUG: clang-2.8 bug in 64-bit mode
+#else
     COMPILE_TIME_ASSERT(__acc_alignof(t1) == 1)
     COMPILE_TIME_ASSERT(__acc_alignof(t2) == 1)
+#endif
 #endif
 #if 1 && (ACC_CC_WATCOMC)
     test1_t t11; COMPILE_TIME_ASSERT(sizeof(t11.a) <= sizeof(t11.b))
@@ -1366,7 +1370,7 @@ void upx_sanity_check(void)
     assert(TestBELE<BE64>::test());
     {
     static const unsigned char dd[32]
-#if 1 && (ACC_CC_GNUC || ACC_CC_INTELC || ACC_CC_PATHSCALE) && defined(__ELF__)
+#if 1 && (ACC_CC_CLANG || ACC_CC_GNUC || ACC_CC_INTELC || ACC_CC_PATHSCALE) && defined(__ELF__)
         __attribute__((__aligned__(16)))
 #endif
         = { 0, 0, 0, 0, 0, 0, 0,
@@ -1434,6 +1438,9 @@ int __acc_cdecl_main main(int argc, char *argv[])
 #if 0 && defined(__DJGPP__)
     // LFN=n may cause problems with 2.03's _rename and mkdir under WinME
     putenv("LFN=y");
+#endif
+#if (ACC_OS_WIN32 || ACC_OS_WIN64) && (ACC_CC_MSC) && defined(_WRITE_ABORT_MSG) && defined(_CALL_REPORTFAULT)
+    _set_abort_behavior(_WRITE_ABORT_MSG, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
     acc_wildargv(&argc, &argv);
 

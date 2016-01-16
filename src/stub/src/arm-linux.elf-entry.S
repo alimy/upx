@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2010 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2010 Laszlo Molnar
-*  Copyright (C) 2000-2010 John F. Reiser
+*  Copyright (C) 1996-2011 Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) 1996-2011 Laszlo Molnar
+*  Copyright (C) 2000-2011 John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -47,9 +47,7 @@ PROT_READ=  1
 PROT_WRITE= 2
 PROT_EXEC=  4
 
-MAP_PRIVATE= 2
 MAP_FIXED=     0x10
-MAP_ANONYMOUS= 0x20
 
 PAGE_SHIFT= 12
 PAGE_SIZE = -(~0<<PAGE_SHIFT)
@@ -61,12 +59,18 @@ __NR_mmap64 = 0xc0 + __NR_SYSCALL_BASE
 __ARM_NR_BASE  = 0xf0000 + __NR_SYSCALL_BASE
 __ARM_NR_cacheflush =  2 + __ARM_NR_BASE
 
+#ifndef DEBUG  /*{*/
+#define DEBUG 0
+#endif  /*}*/
+
         //.long sz_pack2  // placed there by ::pack3()
   section ELFMAINX
 start_params:
         .long ADRM  // dst  for map
         .long LENF  // end_decompress - (start_params -4)
         .long CPR0  //           cpr0 - (start_params -4)
+mflg:
+        .long MFLG  // MAP_{PRIVATE|ANONYMOUS}  // QNX vs linux
 _start: .globl _start
 ////    nop; bkpt
 /* Get some pages: enough
@@ -74,8 +78,19 @@ _start: .globl _start
    the brk() of the _un_compressed program.  The address is pre-calculated
    calculated by PackLinuxElf32arm::addLinkerSymbols().
 */
+
+#if DEBUG  /*{*/
+#define TRACE_REGS r0-r12,r14,r15
+// sp (r13) is not included because the write-back might cause UNDEFINED behavior
+// if the write-back register is not first or last.  The actual value of sp
+// usually does not matter.  Just remember that lr (r14) and pc (r15) are stored
+// one word closer to the stack pointer because r13 has been omitted.
+
+        stmdb sp!,{TRACE_REGS}; mov r0,#1; bl trace
+#endif  /*}*/
         adr r12,start_params -4  // &sz_pack2
-        ldmia r12,{r1,r2, r10,r11}  // r1= sz_pack2; r2= ADRM; r10= LENF; r11= CPR0;
+        ldmia r12,{r1,r2, r10,r11,lr}  // r1= sz_pack2; r2= ADRM; r10= LENF;
+                                       //r11= CPR0; lr= MFLG
         add r10,r10,r12  // end_decompress
         add r11,r11,r12  // cpr0
         mov r0,r2  // ADRM
@@ -86,16 +101,21 @@ _start: .globl _start
   section LUNMP001
         mov r3,#1<<12  // 1-page crumb
   section ELFMAINXu
-        stmdb sp!,{r0,r1,r2,r3}  // ADRU,LENU,space for sz_unc,crumb
+        stmdb sp!,{r0,r1,r2,r3,lr}  // ADRU,LENU,space for sz_unc,crumb,MFLG
 D_sz_unc=2*4  // stack displacement to sz_unc
         mov r2,#PROT_READ | PROT_WRITE | PROT_EXEC
-        mov r3,#MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS
-        mvn r4,#0  // -1; cater to *BSD for fd when MAP_ANON
+        ldr r3,[r12, #mflg - (start_params -4)]  // MAP_{PRIVATE|ANON}
+        mov r5,#0  // offset= 0
+        mvn r4,#0  // fd= -1; cater to *BSD for fd when MAP_ANON
+        orr r3,r3,#MAP_FIXED
 #if defined(ARMEL_EABI4)  /*{*/
         mov r7,#__NR_mmap64
         swi 0
 #else  /*}{*/
         swi __NR_mmap64
+#endif  /*}*/
+#if DEBUG  /*{*/
+        stmdb sp!,{TRACE_REGS}; mov r0,#2; bl trace
 #endif  /*}*/
         cmn r0,#4096
         bcs msg_SELinux
@@ -104,7 +124,9 @@ copy:
         stmia r0!,{r1,r2,r3,r4,r5,r6,r7,r8}; blo copy
 
         sub r4,r0,r9  // relocation amount
+        ldr r1,[sp,#4*4]  // MFLG
         adr r5,f_decompress
+        str r1,[r0],#4  // MFLG
         mov lr,r0  // dst for unfolded code
         add r5,r5,r4  // relocated f_decompress
 
@@ -133,8 +155,63 @@ D_stm1=2*4
         mov  r2,lr  // dst
         str  r3,[sp,#D_stm1 + D_sz_unc]  // sz_unc; lzma needs for EOF
         add  r3, sp,#D_stm1 + D_sz_unc   // &sz_unc
-        mov lr,pc; mov pc,r5  // decompress folded code [opcode 'bx' not in v4a]
+#if DEBUG  /*{*/
+        stmdb sp!,{TRACE_REGS}; mov r0,#3; bl trace
+#endif  /*}*/
+        mov lr,pc; mov pc,r5  // decompress folded code [opcode 'blx' not in v4a]
         ldmia sp!,{r1, pc}  // discard 5th param; goto unfolded
+
+#if DEBUG  /*{*/
+TRACE_BUFLEN=512
+trace:
+        str lr,[sp,#(-1+ 15)*4]  @ return pc; [remember: sp is not stored]
+        mov r4,sp  @ &saved_r0
+        sub sp,sp,#TRACE_BUFLEN
+        mov r2,sp  @ output string
+
+        mov r1,#'\n'; bl trace_hex  @ In: r0 as label
+        mov r1,#'>';  strb r1,[r2],#1
+
+        mov r5,#3  @ rows to print
+L600:  @ each row
+        sub r0,r4,#TRACE_BUFLEN
+        sub r0,r0,sp
+        mov r0,r0,lsr #2; mov r1,#'\n'; bl trace_hex  @ which block of 8
+
+        mov r6,#8  @ words per row
+L610:  @ each word
+        ldr r0,[r4],#4; mov r1,#' '; bl trace_hex  @ next word
+        subs r6,r6,#1; bgt L610
+
+        subs r5,r5,#1; bgt L600
+
+        mov r0,#'\n'; strb r0,[r2],#1
+        sub r2,r2,sp  @ count
+        mov r1,sp  @ buf
+        mov r0,#2  @ FD_STDERR
+#if defined(ARMEL_EABI4)  /*{*/
+        mov r7,#__NR_write
+        swi 0
+#else  /*}{*/
+        swi __NR_write
+#endif  /*}*/
+        add sp,sp,#TRACE_BUFLEN
+        ldmia sp!,{TRACE_REGS}
+
+trace_hex:  // In: r0=val, r1=punctuation before, r2=ptr; Uses: r3, ip
+        strb r1,[r2],#1  @ punctuation
+        mov r3,#4*(8 -1)  @ shift count
+        adr ip,hex
+L620:
+        mov r1,r0,lsr r3
+        and r1,r1,#0xf
+        ldrb r1,[ip, r1]
+        strb r1,[r2],#1
+        subs r3,r3,#4; bge L620
+        ret
+hex:
+        .ascii "0123456789abcdef"
+#endif  /*}*/
 
 f_decompress:
 #define LINUX_ARM_CACHEFLUSH 1

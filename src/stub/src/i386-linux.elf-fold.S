@@ -3,7 +3,7 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 2000-2010 John F. Reiser
+;  Copyright (C) 2000-2011 John F. Reiser
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -228,6 +228,25 @@ L32:
         ret
 
 #define __NR_mmap 90
+
+#if 0  //{  too big and ugly; instead convert to mmap() via #define in .c
+MAP_PRIVATE= 2
+MAP_ANON= 0x20
+
+//mmap_privanon: .globl mmap_privanon
+  int3
+        push 0
+        push ~0
+        mov eax,[4*6 + esp]
+        or eax,MAP_PRIVATE|MAP_ANON
+        push eax
+        push [4*6 + esp]
+        push [4*6 + esp]
+        push [4*6 + esp]
+        call mmap
+        add esp,6*4
+        ret
+#endif  //}
 
 mmap: .globl mmap
         push ebx
