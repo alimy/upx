@@ -37,7 +37,6 @@
 static const
 #include "stub/l_vmlinz.h"
 
-static const unsigned kernel_entry = 0x100000;
 static const unsigned stack_offset_during_uncompression = 0x9000;
 // add to "real mode pointer" in %esi; total 0x99000 is typical
 
@@ -51,7 +50,7 @@ static const unsigned bzimage_offset = 0x100000;
 **************************************************************************/
 
 PackVmlinuzI386::PackVmlinuzI386(InputFile *f) :
-    super(f)
+    super(f), physical_start(0x100000)
 {
     COMPILE_TIME_ASSERT(sizeof(boot_sect_t) == 0x218);
 }
@@ -132,6 +131,16 @@ int PackVmlinuzI386::decompressKernel()
     fi->seek(0, SEEK_SET);
     fi->readx(obuf, file_size);
 
+    // Find "ljmp $__BOOT_CS,$__PHYSICAL_START" if any.
+    // See startup_32: in linux/arch/i386/boot/compressed/head.S
+    char const *p = (char const *)&obuf[setup_size];
+    for (int j= 0; j < 0x200; ++j, ++p)
+    if (0==strncmp("\xEA\x00\x00", p, 3) && 0==(0xf & p[3]) && 0==p[4]) {
+        /* whole megabyte < 16MB */
+        physical_start = get_le32(1+ p);
+        break;
+    }
+
     checkAlreadyPacked(obuf + setup_size, UPX_MIN(file_size - setup_size, 1024));
 
     for (int gzoff = setup_size; gzoff < file_size; gzoff++)
@@ -208,6 +217,13 @@ int PackVmlinuzI386::decompressKernel()
         if (memcmp(ibuf, "\xFC\x0F\x01", 3) == 0) goto head_ok;
         // 2.6.x+grsecurity+strongswan+openwall+trustix: ljmp $0x10,...
         if (ibuf[0] == 0xEA && memcmp(ibuf+5, "\x10\x00", 2) == 0) goto head_ok;
+        // x86_64 2.6.x
+        if (0xB8==ibuf[0]  // mov $...,%eax
+        &&  0x8E==ibuf[5] && 0xD8==ibuf[6]  // mov %eax,%ds
+        &&  0x0F==ibuf[7] && 0x01==ibuf[8] && 020==(070 & ibuf[9]) // lgdtl
+        &&  0xB8==ibuf[14]  // mov $...,%eax
+        &&  0x0F==ibuf[19] && 0xA2==ibuf[20]  // cpuid
+        ) goto head_ok;
 
         throwCantPack("unrecognized kernel architecture; use option `-f' to force packing");
     head_ok:
@@ -274,7 +290,7 @@ void PackVmlinuzI386::pack(OutputFile *fo)
     // prepare filter
     Filter ft(ph.level);
     ft.buf_len = ph.u_len;
-    ft.addvalue = kernel_entry;  // saves 4 bytes in unfilter code
+    ft.addvalue = physical_start;  // saves 4 bytes in unfilter code
     // compress
     compressWithFilters(&ft, 1 << 20);
 
@@ -285,7 +301,7 @@ void PackVmlinuzI386::pack(OutputFile *fo)
     patchPackHeader(loader, lsize);
     patchFilter32(loader, lsize, &ft);
     patch_le32(loader, lsize, "ESI1", zimage_offset + lsize);
-    patch_le32(loader, lsize, "KEIP", kernel_entry);
+    patch_le32(loader, lsize, "KEIP", physical_start);
     patch_le32(loader, lsize, "STAK", stack_offset_during_uncompression);
 
     boot_sect_t * const bs = (boot_sect_t *) ((unsigned char *) setup_buf);
@@ -349,7 +365,7 @@ void PackBvmlinuzI386::pack(OutputFile *fo)
     // prepare filter
     Filter ft(ph.level);
     ft.buf_len = ph.u_len;
-    ft.addvalue = kernel_entry;  // saves 4 bytes in unfilter code
+    ft.addvalue = physical_start;  // saves 4 bytes in unfilter code
     // compress
     compressWithFilters(&ft, 512);
 
@@ -375,17 +391,18 @@ void PackBvmlinuzI386::pack(OutputFile *fo)
     const unsigned esi = ALIGN_UP(clen + lsize, 4) - 4;     // copy from
 
     unsigned jpos = find_le32(loader, e_len, get_le32("JMPD"));
-    patch_le32(loader, e_len, "JMPD", decompr_pos - jpos - 4);
+    patch_le32(loader, e_len, "JMPD", decompr_pos -
+        bzimage_offset + physical_start - jpos - 4);
 
-    patch_le32(loader, e_len, "ESI1", bzimage_offset + decompr_pos - clen);
+    patch_le32(loader, e_len, "ESI1", physical_start + decompr_pos - clen);
     patch_le32(loader, e_len, "ECX0", copy_size / 4);
-    patch_le32(loader, e_len, "EDI0", bzimage_offset + edi);
+    patch_le32(loader, e_len, "EDI0", physical_start + edi);
     patch_le32(loader, e_len, "ESI0", bzimage_offset + esi);
 
     if (0x40==(0xf0 & ft.id)) {
         patch_le32(loader, e_len, "ULEN", ph.u_len);
     }
-    patch_le32(loader, e_len, "KEIP", kernel_entry);
+    patch_le32(loader, e_len, "KEIP", physical_start);
     patch_le32(loader, e_len, "STAK", stack_offset_during_uncompression);
 
     boot_sect_t * const bs = (boot_sect_t *) ((unsigned char *) setup_buf);
@@ -442,7 +459,7 @@ void PackVmlinuzI386::unpack(OutputFile *fo)
 
     // unfilter
     Filter ft(ph.level);
-    ft.init(ph.filter, kernel_entry);
+    ft.init(ph.filter, physical_start);
     ft.cto = (unsigned char) ph.filter_cto;
     ft.unfilter(obuf, ph.u_len);
 

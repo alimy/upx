@@ -715,7 +715,7 @@ PackLinuxElf32::generateElfHdr(
                          h2->ehdr.e_shoff = 0;
     assert(get_native16(&h2->ehdr.e_ehsize)    == sizeof(Elf32_Ehdr));
     assert(get_native16(&h2->ehdr.e_phentsize) == sizeof(Elf32_Phdr));
-                         h2->ehdr.e_shentsize = 0;
+                         h2->ehdr.e_shentsize = sizeof(Elf32_Shdr);
                          h2->ehdr.e_shnum = 0;
                          h2->ehdr.e_shstrndx = 0;
 
@@ -736,6 +736,8 @@ PackLinuxElf32::generateElfHdr(
         set_native32(&h2->phdr[1].p_offset, ~PAGE_MASK & brkb);
         set_native32(&h2->phdr[1].p_vaddr, brkb);
         set_native32(&h2->phdr[1].p_paddr, brkb);
+        // 0==.p_flags causes SIGSEGV on execve in Fedora Core 3, SuSE 10.0
+        set_native32(&h2->phdr[1].p_flags, Elf32_Phdr::PF_W | Elf32_Phdr::PF_R);
         h2->phdr[1].p_filesz = 0;
         h2->phdr[1].p_memsz =  0;
 #undef PAGE_MASK
@@ -757,7 +759,7 @@ PackLinuxElf64::generateElfHdr(
                          h2->ehdr.e_shoff = 0;
     assert(get_native16(&h2->ehdr.e_ehsize)    == sizeof(Elf64_Ehdr));
     assert(get_native16(&h2->ehdr.e_phentsize) == sizeof(Elf64_Phdr));
-                         h2->ehdr.e_shentsize = 0;
+                         h2->ehdr.e_shentsize = sizeof(Elf64_Shdr);
                          h2->ehdr.e_shnum = 0;
                          h2->ehdr.e_shstrndx = 0;
 
@@ -778,6 +780,8 @@ PackLinuxElf64::generateElfHdr(
         set_native64(&h2->phdr[1].p_offset, ~PAGE_MASK & brkb);
         set_native64(&h2->phdr[1].p_vaddr, brkb);
         set_native64(&h2->phdr[1].p_paddr, brkb);
+        // 0==.p_flags causes SIGSEGV on execve in Fedora Core 3, SuSE 10.0
+        set_native32(&h2->phdr[1].p_flags, Elf64_Phdr::PF_W | Elf64_Phdr::PF_R);
         h2->phdr[1].p_filesz = 0;
         h2->phdr[1].p_memsz =  0;
 #undef PAGE_MASK

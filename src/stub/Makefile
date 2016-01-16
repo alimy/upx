@@ -17,8 +17,11 @@ $(error Please set UPX_UCLDIR in Makefile or environment)
 endif
 
 # update path for our special stub build tools
-ifneq ($(wildcard $(HOME)/local/bin/bin-upx),)
-export PATH := $(HOME)/local/bin/bin-upx:$(PATH)
+ifneq ($(wildcard $(HOME)/local/bin/bin-upx2/.),)
+export PATH := $(HOME)/local/bin/bin-upx2:$(PATH)
+endif
+ifneq ($(wildcard $(HOME)/bin/bin-upx2/.),)
+export PATH := $(HOME)/bin/bin-upx2:$(PATH)
 endif
 
 
@@ -104,7 +107,7 @@ O2BIN    = perl -w $(srcdir)/scripts/o2bin.pl
 LD_LINUX_I386 = multiarch-ld-2.17 -b elf32-i386
 OBJCOPY_LINUX_I386 = multiarch-objcopy-2.17 -I elf32-i386
 OBJSTRIP_LINUX_I386 = $(OBJCOPY_LINUX_I386) -R .comment -R .note
-STRIPELF_LINUX_I386 = ./util/sstrip/i386-linux-sstrip
+STRIPELF_LINUX_I386 = sstrip
 
 # gcc 2.7.2.3 (fold_*86.bin: 1900 / 1011 / 1786 / 1401)
 CC_LINUX_I386_GCC272  = i386-linux-gcc-2.72 -m386 -O2 -MMD
@@ -150,7 +153,7 @@ CC_LINUX_I386 += -funsigned-char
 ### MIPS R3000
 ###
 
-CPP_MR3K = i386-linux-gcc-2.95.3 -nostdinc -I$(UCL_UPX) -I$(srcdir) -E -x assembler-with-cpp -Wall -Wp,-P,-C,-traditional
+CPP_MR3K = i386-linux-cpp0-2.95.3 -nostdinc -I$(UCL_UPX) -I$(srcdir) -lang-c -Wall -P -C -traditional
 APP_MR3K = perl -w $(srcdir)/scripts/app_mr3k.pl
 ASM_MR3K = asm5900 --nologo -q
 
@@ -181,7 +184,7 @@ LD_PPC32      := false
 OBJCOPY_PPC32 := false
 OBJSTRIP_PPC32 = $(OBJCOPY_PPC32) -R .comment -R .note
 
-GCC_PPC32     := powerpc-750-linux-gnu-gcc-3.4.4 -mcpu=405 -nostdinc -MMD -fno-exceptions -fno-asynchronous-unwind-tables
+GCC_PPC32     := powerpc.405-linux-gcc-3.4.5 -mcpu=405 -nostdinc -MMD -fno-exceptions -fno-asynchronous-unwind-tables
 GCC_PPC32     += -Wall -W -Wcast-align -Wcast-qual -Wwrite-strings -Werror
 LD_PPC32      := multiarch-ld-2.17 -b elf32-powerpc
 OBJCOPY_PPC32 := multiarch-objcopy-2.17 -I elf32-powerpc
@@ -196,7 +199,7 @@ LD_AMD64      := false
 OBJCOPY_AMD64 := false
 OBJSTRIP_AMD64 = $(OBJCOPY_AMD64) -R .comment -R .note
 
-GCC_AMD64     := x86_64-unknown-linux-gnu-gcc-3.4.4 -m64 -nostdinc -MMD
+GCC_AMD64     := amd64-linux-gcc-3.4.4 -m64 -nostdinc -MMD
 GCC_AMD64     += -Wall -W -Wcast-align -Wcast-qual -Wwrite-strings -Werror
 LD_AMD64      := multiarch-ld-2.17 -b elf64-x86-64
 OBJCOPY_AMD64 := multiarch-objcopy-2.17 -I elf64-x86-64
@@ -206,7 +209,7 @@ OBJCOPY_AMD64 := multiarch-objcopy-2.17 -I elf64-x86-64
 ### ARM-PE-WINCE
 ###
 
-GCC_ARM       :=  arm-9tdmi-linux-gnu-gcc-3.4.5 -march=armv4 -nostdinc -MMD
+GCC_ARM       :=  arm-linux-gcc-4.1.0 -march=armv4 -nostdinc -MMD
 GCC_ARM       += -Wall -W -Wcast-align -Wcast-qual -Wwrite-strings -Werror
 GCC_ARM_T     :=  $(GCC_ARM) -march=armv4t
 OBJCOPY_ARM   :=  multiarch-objcopy-2.17 -I elf32-littlearm
@@ -218,37 +221,38 @@ OBJCOPY_ARM   :=  multiarch-objcopy-2.17 -I elf32-littlearm
 
 .PHONY: default all stubs mostlyclean clean distclean maintainer-clean ident strings
 
+ifeq ($(wildcard .all-stamp),)
 default:
 	@echo "UPX info: type 'make all' if you have all the required build tools."
+else
+default: all
+endif
 
 all: stubs ## upxb upxd
-	@echo "timestamp" > stamp-h
+	@echo "timestamp" > .all-stamp
 
-stubs: $(STUBS)
+stubs: .upx-stubtools-stamp $(STUBS)
 
+.upx-stubtools-stamp: $(MAKEFILE_LIST)
+	upx-stubtools-check-version 20061028-upx2
+	@echo "timestamp" > $@
 
 mostlyclean:
 	-rm -f *.bin *.bkp *.d *.i *.lst *.map stubify.exe
 	-rm -f *.ah *.asx *.asy *.o *.out
 
-clean: mostlyclean
-ifneq ($(strip $(wildcard stamp-h)),)
-	-rm -f l_*.h $(STUBS)
+ifeq ($(wildcard .all-stamp),)
+clean: distclean
+else
+clean: maintainer-clean
 endif
-
 distclean: mostlyclean
-	@-rm -f stamp-h
-
+	rm -f .*-stamp
+	rm -rf tmp
 maintainer-clean: mostlyclean
-	-rm -f l_*.h $(STUBS)
-	@-rm -f stamp-h
-
-
-ident: all
-	ident *.bin
-
-strings: all
-	strings *.bin
+	rm -f .upx-stubtools-stamp
+	rm -rf tmp
+	rm -f l_*.h $(STUBS)
 
 
 # /***********************************************************************
@@ -316,37 +320,37 @@ l_w32pe.h: l_w32pe.asx
 # ************************************************************************/
 
 l_t_n2b.h: l_tos.s
-	$(CPP_M68K) -DNRV2B -o $T.i $<
+	$(CPP_M68K) -DNRV2B $< $T.i
 	$(ASM_M68K) $T.i
 	$(O2BIN) $T.o $T.bin 'UPX1' 'UPX9'
 	$(BIN2H) $T.bin nrv2b_loader $@
 
 l_t_n2bs.h: l_tos.s
-	$(CPP_M68K) -DNRV2B -DSMALL -o $T.i $<
+	$(CPP_M68K) -DNRV2B -DSMALL $< $T.i
 	$(ASM_M68K) $T.i
 	$(O2BIN) $T.o $T.bin 'UPX1' 'UPX9'
 	$(BIN2H) $T.bin nrv2b_loader_small $@
 
 l_t_n2d.h: l_tos.s
-	$(CPP_M68K) -DNRV2D -o $T.i $<
+	$(CPP_M68K) -DNRV2D $< $T.i
 	$(ASM_M68K) $T.i
 	$(O2BIN) $T.o $T.bin 'UPX1' 'UPX9'
 	$(BIN2H) $T.bin nrv2d_loader $@
 
 l_t_n2ds.h: l_tos.s
-	$(CPP_M68K) -DNRV2D -DSMALL -o $T.i $<
+	$(CPP_M68K) -DNRV2D -DSMALL $< $T.i
 	$(ASM_M68K) $T.i
 	$(O2BIN) $T.o $T.bin 'UPX1' 'UPX9'
 	$(BIN2H) $T.bin nrv2d_loader_small $@
 
 l_t_n2e.h: l_tos.s
-	$(CPP_M68K) -DNRV2E -o $T.i $<
+	$(CPP_M68K) -DNRV2E $< $T.i
 	$(ASM_M68K) $T.i
 	$(O2BIN) $T.o $T.bin 'UPX1' 'UPX9'
 	$(BIN2H) $T.bin nrv2e_loader $@
 
 l_t_n2es.h: l_tos.s
-	$(CPP_M68K) -DNRV2E -DSMALL -o $T.i $<
+	$(CPP_M68K) -DNRV2E -DSMALL $< $T.i
 	$(ASM_M68K) $T.i
 	$(O2BIN) $T.o $T.bin 'UPX1' 'UPX9'
 	$(BIN2H) $T.bin nrv2e_loader_small $@
@@ -357,13 +361,13 @@ l_t_n2es.h: l_tos.s
 # ************************************************************************/
 
 l_ps1b.h: l_ps1.asm
-	$(CPP_MR3K) -DCDBOOT -o $T.asx $<
+	$(CPP_MR3K) -DCDBOOT $< $T.asx
 	$(APP_MR3K) $T.asx $T.asy
 	$(ASM_MR3K) $T.asy -o$T.bin -l$T.lst
 	$(BIN2H) $T.bin nrv_boot_loader $@
 
 l_ps1c.h: l_ps1.asm
-	$(CPP_MR3K) -o $T.asx $<
+	$(CPP_MR3K) $< $T.asx
 	$(APP_MR3K) $T.asx $T.asy
 	$(ASM_MR3K) $T.asy -o$T.bin -l$T.lst
 	$(BIN2H) $T.bin nrv_con_loader $@

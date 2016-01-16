@@ -84,6 +84,7 @@ protected:
 
     MemBuffer setup_buf;
     int setup_size;
+    unsigned physical_start;
 };
 
 

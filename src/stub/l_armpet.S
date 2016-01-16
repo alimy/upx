@@ -338,6 +338,9 @@ SECT(UPX1HEAD):
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+SECT(dummy2):
+        // this empty sections makes sure that sizeof(UPX1HEAD) == 32
+
         .arm
 SECT(eof):
         .text   1

@@ -1,4 +1,4 @@
-/* l_armpet.h -- created from l_armpet.bin, 1000 (0x3e8) bytes
+/* l_armpet.h -- created from l_armpet.bin, 1008 (0x3f0) bytes
 
    This file is part of the UPX executable compressor.
 
@@ -27,11 +27,11 @@
  */
 
 
-#define NRV_LOADER_THUMB_SIZE    1000
-#define NRV_LOADER_THUMB_ADLER32 0x4f344c3e
-#define NRV_LOADER_THUMB_CRC32   0xe1803a67
+#define NRV_LOADER_THUMB_SIZE    1008
+#define NRV_LOADER_THUMB_ADLER32 0xa9ac4f90
+#define NRV_LOADER_THUMB_CRC32   0x781589dd
 
-unsigned char nrv_loader_thumb[1000] = {
+unsigned char nrv_loader_thumb[1008] = {
   1,  0, 81,227, 11,  0,  0, 26,255, 79, 45,233, 44, 48,143,226,   /* 0x   0 */
 224, 30,147,232,  1, 90,143,226,  0, 96,151,229,  1,122,135,226,   /* 0x  10 */
   5,  0, 87,225,251,255,255,154, 53, 64,143,226, 15,224,160,225,   /* 0x  20 */
@@ -93,6 +93,6 @@ unsigned char nrv_loader_thumb[1000] = {
  28,  2,  0,  0, 67, 97,108,108, 50, 69,  0,206,  2,  0,  0,  0,   /* 0x 3a0 */
   0,  0,  0,209,  2,  0,  0,116,104,117,109, 98, 95,110,114,118,   /* 0x 3b0 */
  50,101, 95,100, 56,  0,  0,  0,  0,  0, 85, 80, 88, 49, 72, 69,   /* 0x 3c0 */
- 65, 68,  0,210,  2,  0,  0,101,111,102,  0,244,  2,  0,  0,255,   /* 0x 3d0 */
-255,255,255,244,  2,  0,  0,  0                                    /* 0x 3e0 */
+ 65, 68,  0,210,  2,  0,  0,100,117,109,109,121, 50,  0,242,  2,   /* 0x 3d0 */
+  0,  0,101,111,102,  0,244,  2,  0,  0,255,255,255,255,244,  2    /* 0x 3e0 */
 };
